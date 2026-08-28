@@ -1,0 +1,6 @@
+# This project authors files that are executed inside a Linux container.
+# core.autocrlf=true on a Windows checkout would rewrite them to CRLF, which
+# breaks shell scripts and silently corrupts unified diffs. Pin LF everywhere.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
