@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Secrets -- never commit API keys or GitHub tokens
+.env
+.env.*
+!.env.example
+
+# Agent run artefacts (Phase 3 eval results, Phase 7 database)
+results/
+*.sqlite
+*.sqlite3
+*.db
+
+# Local scratch
+.pytest_cache/
+scratch/
+
+# OneDrive / Windows noise
+Thumbs.db
+desktop.ini
