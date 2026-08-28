@@ -1,0 +1,194 @@
+{
+  "meta": {
+    "run_id": "20260828T194555Z-65555de",
+    "tag": "prompt-fix-check",
+    "model": "claude-sonnet-5",
+    "task_count": 1,
+    "max_tool_calls": 15,
+    "total_cost_usd": 0.267061,
+    "judge_usage": {
+      "input_tokens": 5089,
+      "output_tokens": 419,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost_usd": 0.014368,
+      "llm_calls": 1
+    },
+    "created_utc": "2026-08-28T19:48:18.771485+00:00"
+  },
+  "results": [
+    {
+      "issue_id": "asottile/pyupgrade#1054",
+      "status": "fixed",
+      "stop_reason": "tool_budget_exhausted",
+      "diff": "diff --git a/pyupgrade/_plugins/open_mode.py b/pyupgrade/_plugins/open_mode.py\nindex 17730af..8883c1b 100644\n--- a/pyupgrade/_plugins/open_mode.py\n+++ b/pyupgrade/_plugins/open_mode.py\n@@ -15,6 +15,7 @@ from pyupgrade._ast_helpers import has_starargs\n from pyupgrade._data import register\n from pyupgrade._data import State\n from pyupgrade._data import TokenFunc\n+from pyupgrade._string_helpers import is_codec\n from pyupgrade._token_helpers import delete_argument\n from pyupgrade._token_helpers import find_op\n from pyupgrade._token_helpers import parse_call_args\n@@ -61,6 +62,18 @@ def _fix_open_mode(i: int, tokens: list[Token], *, arg_idx: int) -> None:\n         raise AssertionError(f'unreachable: {mode!r}')\n \n \n+def _fix_encoding_arg(i: int, tokens: list[Token]) -> None:\n+    j = find_op(tokens, i, '(')\n+    func_args, _ = parse_call_args(tokens, j)\n+    for n, (start, _) in enumerate(func_args):\n+        k = start\n+        while tokens[k].name in {'UNIMPORTANT_WS', 'NL', 'COMMENT'}:\n+            k += 1\n+        if tokens[k].name == 'NAME' and tokens[k].src == 'encoding':\n+            delete_argument(n, tokens, func_args)\n+            return\n+\n+\n @register(ast.Call)\n def visit_Call(\n         state: State,\n@@ -115,3 +128,16 @@ def visit_Call(\n                     arg_idx=len(node.args) + mode.arg_idx,\n                 )\n                 yield ast_to_offset(node), func\n+\n+        if state.settings.min_version >= (3, 15):\n+            encoding_kw = next(\n+                (kw for kw in node.keywords if kw.arg == 'encoding'),\n+                None,\n+            )\n+            if (\n+                    encoding_kw is not None and\n+                    isinstance(encoding_kw.value, ast.Constant) and\n+                    isinstance(encoding_kw.value.value, str) and\n+                    is_codec(encoding_kw.value.value, 'utf-8')\n+            ):\n+                yield ast_to_offset(node), _fix_encoding_arg\ndiff --git a/tests/features/open_mode_test.py b/tests/features/open_mode_test.py\nindex 8e19197..5fe7a2a 100644\n--- a/tests/features/open_mode_test.py\n+++ b/tests/features/open_mode_test.py\n@@ -90,3 +90,25 @@ def test_fix_open_mode_noop(s):\n def test_fix_open_mode(s, expected):\n     ret = _fix_plugins(s, settings=Settings())\n     assert ret == expected\n+\n+\n+@pytest.mark.parametrize(\n+    ('s', 'expected'),\n+    (\n+        ('open(\"f\", encoding=\"UTF-8\")', 'open(\"f\")'),\n+        ('open(\"f\", \"r\", encoding=\"UTF-8\")', 'open(\"f\")'),\n+        (\n+            'open(\"f\", mode=\"r\", encoding=\"UTF-8\")',\n+            'open(\"f\")',\n+        ),\n+    ),\n+)\n+def test_fix_open_mode_encoding_pep686(s, expected):\n+    ret = _fix_plugins(s, settings=Settings(min_version=(3, 15)))\n+    assert ret == expected\n+\n+\n+def test_fix_open_mode_encoding_pep686_noop():\n+    s = 'open(\"f\", \"r\", encoding=\"UTF-8\")'\n+    ret = _fix_plugins(s, settings=Settings())\n+    assert ret == 'open(\"f\", encoding=\"UTF-8\")'\n",
+      "test_output": "........................................................................ [  7%]\n........................................................................ [ 14%]\n........................................................................ [ 21%]\n........................................................................ [ 28%]\n........................................................................ [ 35%]\n........................................................................ [ 42%]\n........................................................................ [ 49%]\n......................xxxx.............................................. [ 56%]\n........................................................................ [ 63%]\n........................................................................ [ 70%]\n........................................................................ [ 77%]\n........................................................................ [ 84%]\n........................................................................ [ 91%]\n........................................................................ [ 98%]\n................                                                         [100%]\n1020 passed, 4 xfailed in 4.73s\n",
+      "tool_call_count": 15,
+      "duration_seconds": 129.0,
+      "tokens_used": 9451,
+      "cost_usd": 0.252693,
+      "base_ref": "b01874bf3f2c5463a1b344e0658b1f1f4dafd2e8^1",
+      "model_verdict": null,
+      "files_changed": [
+        "pyupgrade/_plugins/open_mode.py",
+        "tests/features/open_mode_test.py"
+      ],
+      "tests_passed": 1020,
+      "tests_failed": 0,
+      "touched_tests_only": false,
+      "transcript": [
+        {
+          "n": 1,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "encoding"
+          },
+          "ok": true
+        },
+        {
+          "n": 2,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "py3[0-9]+_plus|PY3[0-9]+_PLUS"
+          },
+          "ok": true
+        },
+        {
+          "n": 3,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "min_version|py3\\d_plus|_plus="
+          },
+          "ok": true
+        },
+        {
+          "n": 4,
+          "tool": "read_file",
+          "args": {
+            "path": "pyupgrade/_plugins/default_encoding.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 5,
+          "tool": "read_file",
+          "args": {
+            "path": "pyupgrade/_plugins/open_mode.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 6,
+          "tool": "read_file",
+          "args": {
+            "path": "tests/features/open_mode_test.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 7,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "def delete_argument|def find_op|def parse_call_args"
+          },
+          "ok": true
+        },
+        {
+          "n": 8,
+          "tool": "read_file",
+          "args": {
+            "path": "pyupgrade/_token_helpers.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 9,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "def _fix_plugins|callbacks\\[|reversed_enumerate"
+          },
+          "ok": true
+        },
+        {
+          "n": 10,
+          "tool": "read_file",
+          "args": {
+            "path": "pyupgrade/_main.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 11,
+          "tool": "read_file",
+          "args": {
+            "path": "pyupgrade/_data.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 12,
+          "tool": "apply_patch",
+          "args": {
+            "diff": "--- a/pyupgrade/_plugins/open_mode.py\n+++ b/pyupgrade/_plugins/open_mode.py\n@@ -8,6 +8,7 @@ from tokenize_rt import Offset\n from tokenize_rt import Token\n from tokenize_rt import tokens_to_src\n \n+from pyupgrade._string_helpers import is_codec\n from pyupgrade._ast_helpers import ast_to_offset\n from pyupgrade._ast_helpers import has_starargs\n from pyupgrade._data import register\n@@ -59,6 +60,17 @@ def _fix_open_mode(i: int, tokens: list[Token], *, arg_idx: int) -> None:\n         raise AssertionError(f'unreachable: {mode!r}')\n \n \n+def _fix_encoding_arg(i: int, tokens: list[Token]) -> None:\n+    j = find_op(tokens, i, '(')\n+    func_args, _ = parse_call_args(tokens, j)\n+    for n, (start, _) in enumerate(func_args):\n+        k = start\n+        while tokens[k].name in {'UNIMPORTANT_WS', 'NL', 'COMMENT'}:\n+            k += 1\n+        if tokens[k].name == 'NAME' and tokens[k].src == 'encoding':\n+            delete_argument(n, tokens, func_args)\n+            return\n+\n+\n @register(ast.Call)\n def visit_Call(\n         state: State,\n@@ -114,4 +126,17 @@ def visit_Call(\n                     _fix_open_mode,\n                     arg_idx=len(node.args) + mode.arg_idx,\n                 )\n                 yield ast_to_offset(node), func\n+\n+        if state.settings.min_version >= (3, 15):\n+            encoding_kw = next(\n+                (kw for kw in node.keywords if kw.arg == 'encoding'),\n+                None,\n+            )\n+            if (\n+                    encoding_kw is not None and\n+                    isinstance(encoding_kw.value, ast.Constant) and\n+                    isinstance(encoding_kw.value.value, str) and\n+                    is_codec(encoding_kw.value.value, 'utf-8')\n+            ):\n+                yield ast_to_offset(node), _fix_encoding_arg\n"
+          },
+          "ok": true
+        },
+        {
+          "n": 13,
+          "tool": "git_diff",
+          "args": {},
+          "ok": true
+        },
+        {
+          "n": 14,
+          "tool": "apply_patch",
+          "args": {
+            "diff": "--- a/pyupgrade/_plugins/open_mode.py\n+++ b/pyupgrade/_plugins/open_mode.py\n@@ -8,13 +8,13 @@ from tokenize_rt import Offset\n from tokenize_rt import Token\n from tokenize_rt import tokens_to_src\n \n-from pyupgrade._string_helpers import is_codec\n from pyupgrade._ast_helpers import ast_to_offset\n from pyupgrade._ast_helpers import has_starargs\n from pyupgrade._data import register\n from pyupgrade._data import State\n from pyupgrade._data import TokenFunc\n+from pyupgrade._string_helpers import is_codec\n from pyupgrade._token_helpers import delete_argument\n from pyupgrade._token_helpers import find_op\n from pyupgrade._token_helpers import parse_call_args\n"
+          },
+          "ok": true
+        },
+        {
+          "n": 15,
+          "tool": "apply_patch",
+          "args": {
+            "diff": "--- a/tests/features/open_mode_test.py\n+++ b/tests/features/open_mode_test.py\n@@ -89,3 +89,25 @@ def test_fix_open_mode_noop(s):\n def test_fix_open_mode(s, expected):\n     ret = _fix_plugins(s, settings=Settings())\n     assert ret == expected\n+\n+\n+@pytest.mark.parametrize(\n+    ('s', 'expected'),\n+    (\n+        ('open(\"f\", encoding=\"UTF-8\")', 'open(\"f\")'),\n+        ('open(\"f\", \"r\", encoding=\"UTF-8\")', 'open(\"f\")'),\n+        (\n+            'open(\"f\", mode=\"r\", encoding=\"UTF-8\")',\n+            'open(\"f\")',\n+        ),\n+    ),\n+)\n+def test_fix_open_mode_encoding_pep686(s, expected):\n+    ret = _fix_plugins(s, settings=Settings(min_version=(3, 15)))\n+    assert ret == expected\n+\n+\n+def test_fix_open_mode_encoding_pep686_noop():\n+    s = 'open(\"f\", \"r\", encoding=\"UTF-8\")'\n+    ret = _fix_plugins(s, settings=Settings())\n+    assert ret == 'open(\"f\", encoding=\"UTF-8\")'\n"
+          },
+          "ok": true
+        }
+      ],
+      "resolved": true,
+      "fail_to_pass": {
+        "test_files": [
+          "tests/features/open_mode_test.py"
+        ],
+        "src_files": [
+          "pyupgrade/_plugins/open_mode.py"
+        ],
+        "result": "REAL",
+        "with_fix_passed": 1020,
+        "with_fix_failed": 0,
+        "without_fix_failed": 3,
+        "failing_without_fix": [
+          "tests/features/open_mode_test.py::test_fix_open_mode_encoding_pep686[open(\"f\", encoding=\"UTF-8\")-open(\"f\")]",
+          "tests/features/open_mode_test.py::test_fix_open_mode_encoding_pep686[open(\"f\", \"r\", encoding=\"UTF-8\")-open(\"f\")]",
+          "tests/features/open_mode_test.py::test_fix_open_mode_encoding_pep686[open(\"f\", mode=\"r\", encoding=\"UTF-8\")-open(\"f\")]"
+        ]
+      },
+      "judge": {
+        "score": 2,
+        "same_root_cause": true,
+        "weakens_tests": false,
+        "narrower_than_reference": true,
+        "reasoning": "Both diffs detect `open(..., encoding=\"utf-8\")` calls when min_version >= (3,15) using is_codec, and remove the encoding argument via delete_argument. The candidate implements this inline in open_mode.py rather than creating a separate plugin file, but achieves the same functional outcome. However, the candidate's test 'open(\"f\", \"r\", encoding=\"UTF-8\")' -> 'open(\"f\")' expects removal even when a positional mode arg is present, whereas the reference's noop test 'open(\"foo\", \"r\", \"utf-8\")' (positional encoding, not keyword) is different - actually that's not the same case. The candidate doesn't seem to guard against ambiguous cases like the reference's 'don't remove positional utf-8' test, but that's a minor difference since candidate only removes keyword args anyway. Overall the core mechanism matches the reference's approach.",
+        "judged": true
+      },
+      "truth_src_files": [
+        "README.md",
+        "pyupgrade/_ast_helpers.py",
+        "pyupgrade/_plugins/open_encoding.py",
+        "pyupgrade/_plugins/open_mode.py"
+      ],
+      "truth_churn": 142
+    }
+  ]
+}

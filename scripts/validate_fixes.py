@@ -26,52 +26,15 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from sandbox import Sandbox  # noqa: E402
-from tools import Toolbox  # noqa: E402
+from validation import fail_to_pass  # noqa: E402
 
 
 def validate(payload: dict) -> dict:
-    issue_id = payload["issue_id"]
-    diff = payload.get("diff") or ""
-    files = payload.get("files_changed") or []
-    test_files = [f for f in files if f.startswith("tests/")]
-    src_files = [f for f in files if not f.startswith("tests/")]
-
-    verdict = {"issue_id": issue_id, "test_files": test_files, "src_files": src_files}
-
-    if not diff.strip():
-        return verdict | {"result": "no-diff", "detail": "agent changed nothing"}
-    if not test_files:
-        return verdict | {"result": "no-test", "detail": "agent added no test to validate with"}
-    if not src_files:
-        return verdict | {"result": "tests-only", "detail": "agent changed only tests"}
-
-    with Sandbox(ref=payload.get("base_ref")) as sb:
-        tb = Toolbox(sb, test_timeout=300)
-
-        applied = tb.apply_patch(diff)
-        if not applied.get("ok"):
-            return verdict | {"result": "patch-failed", "detail": applied.get("error", "")[:300]}
-
-        # Both applied: sanity-check the suite is green as reported.
-        both = tb.run_tests()
-
-        # Revert only the source changes, keeping the new test.
-        quoted = " ".join(f"'{f}'" for f in src_files)
-        rev = sb.exec(f"git checkout -- {quoted}", timeout=60)
-        if not rev.ok:
-            return verdict | {"result": "revert-failed", "detail": rev.stderr[:300]}
-
-        test_only = tb.run_tests(target=" ".join(test_files))
-
-    reproduces = not test_only.get("ok")
-    return verdict | {
-        "result": "REAL" if reproduces else "VACUOUS",
-        "with_fix_passed": both.get("passed"),
-        "with_fix_failed": both.get("failed", 0) + both.get("errors", 0),
-        "without_fix_failed": test_only.get("failed", 0) + test_only.get("errors", 0),
-        "failing_without_fix": test_only.get("failing_tests", [])[:5],
-    }
+    return {"issue_id": payload["issue_id"]} | fail_to_pass(
+        diff=payload.get("diff") or "",
+        base_ref=payload.get("base_ref"),
+        files_changed=payload.get("files_changed") or [],
+    )
 
 
 def main() -> int:

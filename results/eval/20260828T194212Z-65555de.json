@@ -1,0 +1,227 @@
+{
+  "meta": {
+    "run_id": "20260828T194212Z-65555de",
+    "tag": "smoke",
+    "model": "claude-sonnet-5",
+    "task_count": 2,
+    "max_tool_calls": 15,
+    "total_cost_usd": 0.208304,
+    "judge_usage": {
+      "input_tokens": 2845,
+      "output_tokens": 348,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost_usd": 0.00917,
+      "llm_calls": 1
+    },
+    "created_utc": "2026-08-28T19:44:13.008892+00:00"
+  },
+  "results": [
+    {
+      "issue_id": "asottile/pyupgrade#1054",
+      "status": "skipped",
+      "stop_reason": "model_finished",
+      "diff": "",
+      "test_output": "........................................................................ [  7%]\n........................................................................ [ 14%]\n........................................................................ [ 21%]\n........................................................................ [ 28%]\n........................................................................ [ 35%]\n........................................................................ [ 42%]\n........................................................................ [ 49%]\n..................xxxx.................................................. [ 56%]\n........................................................................ [ 63%]\n........................................................................ [ 70%]\n........................................................................ [ 77%]\n........................................................................ [ 84%]\n........................................................................ [ 91%]\n........................................................................ [ 98%]\n............                                                             [100%]\n1016 passed, 4 xfailed in 4.23s\n",
+      "tool_call_count": 0,
+      "duration_seconds": 9.0,
+      "tokens_used": 79,
+      "cost_usd": 0.007964,
+      "base_ref": "b01874bf3f2c5463a1b344e0658b1f1f4dafd2e8^1",
+      "model_verdict": "SKIP",
+      "files_changed": [],
+      "tests_passed": 1016,
+      "tests_failed": 0,
+      "touched_tests_only": false,
+      "transcript": [],
+      "resolved": false,
+      "fail_to_pass": {
+        "test_files": [],
+        "src_files": [],
+        "result": "no-diff",
+        "detail": "agent changed nothing"
+      },
+      "judge": {
+        "score": 0,
+        "same_root_cause": false,
+        "weakens_tests": false,
+        "narrower_than_reference": true,
+        "reasoning": "Candidate produced no diff.",
+        "judged": false
+      },
+      "truth_src_files": [
+        "README.md",
+        "pyupgrade/_ast_helpers.py",
+        "pyupgrade/_plugins/open_encoding.py",
+        "pyupgrade/_plugins/open_mode.py"
+      ],
+      "truth_churn": 142
+    },
+    {
+      "issue_id": "asottile/pyupgrade#1042",
+      "status": "fixed",
+      "stop_reason": "model_finished",
+      "diff": "diff --git a/pyupgrade/_plugins/typing_pep563.py b/pyupgrade/_plugins/typing_pep563.py\nindex 7bbe403..daec2c5 100644\n--- a/pyupgrade/_plugins/typing_pep563.py\n+++ b/pyupgrade/_plugins/typing_pep563.py\n@@ -7,6 +7,7 @@ from collections.abc import Iterable\n from collections.abc import Sequence\n \n from tokenize_rt import Offset\n+from tokenize_rt import NON_CODING_TOKENS\n \n from pyupgrade._ast_helpers import ast_to_offset\n from pyupgrade._data import register\n@@ -23,8 +24,21 @@ def _supported_version(state: State) -> bool:\n \n \n def _dequote(i: int, tokens: list[Token], *, new: str) -> None:\n+    # implicitly concatenated strings are represented as a single\n+    # `ast.Constant` -- find the extent of the additional string tokens\n+    # (if any) so they can be removed along with the leading token being\n+    # rewritten in place\n     tokens[i] = tokens[i]._replace(src=new)\n \n+    j = i + 1\n+    last_string_end = i\n+    while j < len(tokens) and tokens[j].name in {*NON_CODING_TOKENS, 'STRING'}:\n+        if tokens[j].name == 'STRING':\n+            last_string_end = j\n+        j += 1\n+    if last_string_end != i:\n+        del tokens[i + 1:last_string_end + 1]\n+\n \n def _get_name(node: ast.expr) -> str:\n     if isinstance(node, ast.Name):\ndiff --git a/tests/features/typing_pep563_test.py b/tests/features/typing_pep563_test.py\nindex b71f884..c3bc49c 100644\n--- a/tests/features/typing_pep563_test.py\n+++ b/tests/features/typing_pep563_test.py\n@@ -365,6 +365,20 @@ def test_fix_typing_pep563_noop(s):\n \n             id='posonly args',\n         ),\n+        pytest.param(\n+            'from __future__ import annotations\\n'\n+            'a: (\\n'\n+            \"    'str | '\\n\"\n+            \"    'int'\\n\"\n+            ')\\n',\n+\n+            'from __future__ import annotations\\n'\n+            'a: (\\n'\n+            '    str | int\\n'\n+            ')\\n',\n+\n+            id='implicitly concatenated string annotation',\n+        ),\n     ),\n )\n def test_fix_typing_pep563(s, expected):\n",
+      "test_output": "........................................................................ [  7%]\n........................................................................ [ 14%]\n........................................................................ [ 21%]\n........................................................................ [ 28%]\n........................................................................ [ 35%]\n........................................................................ [ 42%]\n........................................................................ [ 49%]\n..................xxxx.................................................. [ 56%]\n........................................................................ [ 63%]\n........................................................................ [ 70%]\n........................................................................ [ 78%]\n........................................................................ [ 85%]\n........................................................................ [ 92%]\n........................................................................ [ 99%]\n.......                                                                  [100%]\n1011 passed, 4 xfailed in 3.21s\n",
+      "tool_call_count": 14,
+      "duration_seconds": 100.5,
+      "tokens_used": 6904,
+      "cost_usd": 0.19117,
+      "base_ref": "3a1254b1d9ee85380bafa043d0a781be7b5f3c93^1",
+      "model_verdict": "FIXED",
+      "files_changed": [
+        "pyupgrade/_plugins/typing_pep563.py",
+        "tests/features/typing_pep563_test.py"
+      ],
+      "tests_passed": 1011,
+      "tests_failed": 0,
+      "touched_tests_only": false,
+      "transcript": [
+        {
+          "n": 1,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "annotation",
+            "path_glob": "pyupgrade/_plugins/*.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 2,
+          "tool": "read_file",
+          "args": {
+            "path": "pyupgrade/_plugins/typing_pep563.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 3,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "concat|STRING",
+            "path_glob": "pyupgrade/_token_helpers.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 4,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "_dequote|find_token|src_to_tree|def _replace_string_literal",
+            "path_glob": "pyupgrade/**"
+          },
+          "ok": true
+        },
+        {
+          "n": 5,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "TokenFunc|callbacks\\[|token_offset|reversed_enumerate",
+            "path_glob": "pyupgrade/_main.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 6,
+          "tool": "read_file",
+          "args": {
+            "path": "pyupgrade/_main.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 7,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "def rfind_string_parts|def parse_string_literal",
+            "path_glob": "**/tokenize_rt*"
+          },
+          "ok": true
+        },
+        {
+          "n": 8,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "def rfind_string_parts"
+          },
+          "ok": true
+        },
+        {
+          "n": 9,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "concat|implicit",
+            "path_glob": "tests/**\""
+          },
+          "ok": true
+        },
+        {
+          "n": 10,
+          "tool": "read_file",
+          "args": {
+            "path": "tests/features/typing_pep563_test.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 11,
+          "tool": "apply_patch",
+          "args": {
+            "diff": "--- a/pyupgrade/_plugins/typing_pep563.py\n+++ b/pyupgrade/_plugins/typing_pep563.py\n@@ -6,6 +6,7 @@ from collections.abc import Iterable\n from collections.abc import Sequence\n \n from tokenize_rt import Offset\n+from tokenize_rt import NON_CODING_TOKENS\n \n from pyupgrade._ast_helpers import ast_to_offset\n from pyupgrade._data import register\n@@ -22,8 +23,20 @@ def _supported_version(state: State) -> bool:\n     )\n \n \n-def _dequote(i: int, tokens: list[Token], *, new: str) -> None:\n+def _dequote(i: int, tokens: list[Token], *, new: str) -> None:\n+    # implicitly concatenated strings are represented as a single\n+    # `ast.Constant` -- find the extent of the additional string tokens\n+    # (if any) so they can be removed along with the leading token being\n+    # rewritten in place\n     tokens[i] = tokens[i]._replace(src=new)\n+\n+    j = i + 1\n+    last_string_end = i\n+    while j < len(tokens) and tokens[j].name in {*NON_CODING_TOKENS, 'STRING'}:\n+        if tokens[j].name == 'STRING':\n+            last_string_end = j\n+        j += 1\n+    if last_string_end != i:\n+        del tokens[i + 1:last_string_end + 1]\n \n \n def _get_name(node: ast.expr) -> str:\n"
+          },
+          "ok": true
+        },
+        {
+          "n": 12,
+          "tool": "read_file",
+          "args": {
+            "path": "pyupgrade/_plugins/typing_pep563.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 13,
+          "tool": "apply_patch",
+          "args": {
+            "diff": "--- a/tests/features/typing_pep563_test.py\n+++ b/tests/features/typing_pep563_test.py\n@@ -365,6 +365,17 @@ def test_fix_typing_pep563_noop(s):\n \n             id='posonly args',\n         ),\n+        pytest.param(\n+            'from __future__ import annotations\\n'\n+            'a: (\\n'\n+            \"    'str | '\\n\"\n+            \"    'int'\\n\"\n+            ')\\n',\n+\n+            'from __future__ import annotations\\n'\n+            'a: (\\n'\n+            '    str | int\\n'\n+            ')\\n',\n+\n+            id='implicitly concatenated string annotation',\n+        ),\n     ),\n )\n def test_fix_typing_pep563(s, expected):\n"
+          },
+          "ok": true
+        },
+        {
+          "n": 14,
+          "tool": "run_tests",
+          "args": {},
+          "ok": true
+        }
+      ],
+      "resolved": true,
+      "fail_to_pass": {
+        "test_files": [
+          "tests/features/typing_pep563_test.py"
+        ],
+        "src_files": [
+          "pyupgrade/_plugins/typing_pep563.py"
+        ],
+        "result": "REAL",
+        "with_fix_passed": 1011,
+        "with_fix_failed": 0,
+        "without_fix_failed": 1,
+        "failing_without_fix": [
+          "tests/features/typing_pep563_test.py::test_fix_typing_pep563[implicitly concatenated string annotation]"
+        ]
+      },
+      "judge": {
+        "score": 3,
+        "same_root_cause": true,
+        "weakens_tests": false,
+        "narrower_than_reference": false,
+        "reasoning": "Both fixes address the same root cause: _dequote only replaced the first token's src but left subsequent implicitly-concatenated STRING tokens (and NON_CODING_TOKENS like whitespace/newlines) in the token stream, causing invalid output. Both scan forward through NON_CODING_TOKENS/STRING tokens to find the extent of the concatenated string and remove the extra tokens, keeping only the rewritten first token. The candidate's implementation differs slightly (uses a set membership check and deletes a slice after leaving the last found STRING) but achieves an equivalent effect, and it adds an analogous test case matching the issue exactly.",
+        "judged": true
+      },
+      "truth_src_files": [
+        "pyupgrade/_plugins/typing_pep563.py"
+      ],
+      "truth_churn": 25
+    }
+  ]
+}

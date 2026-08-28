@@ -1,0 +1,135 @@
+{
+  "issue_id": "asottile/pyupgrade#989",
+  "status": "fixed",
+  "stop_reason": "model_finished",
+  "diff": "diff --git a/pyupgrade/_plugins/default_encoding.py b/pyupgrade/_plugins/default_encoding.py\nindex f681510..73ac7d0 100644\n--- a/pyupgrade/_plugins/default_encoding.py\n+++ b/pyupgrade/_plugins/default_encoding.py\n@@ -14,9 +14,11 @@ from pyupgrade._data import TokenFunc\n from pyupgrade._string_helpers import is_codec\n from pyupgrade._token_helpers import find_closing_bracket\n from pyupgrade._token_helpers import find_op\n+from pyupgrade._token_helpers import find_name\n \n \n def _fix_default_encoding(i: int, tokens: list[Token]) -> None:\n+    i = find_name(tokens, i, 'encode')\n     i = find_op(tokens, i + 1, '(')\n     j = find_closing_bracket(tokens, i)\n     del tokens[i + 1:j]\ndiff --git a/pyupgrade/_plugins/default_encoding.py.rej b/pyupgrade/_plugins/default_encoding.py.rej\nnew file mode 100644\nindex 0000000..e69de29\ndiff --git a/tests/features/default_encoding_test.py b/tests/features/default_encoding_test.py\nindex f039fdc..6fb1277 100644\n--- a/tests/features/default_encoding_test.py\n+++ b/tests/features/default_encoding_test.py\n@@ -38,6 +38,11 @@ from pyupgrade._main import _fix_plugins\n             'f\"{x}(\".encode()',\n             id='3.12+ handle open brace in fstring',\n         ),\n+        pytest.param(\n+            'f\"{foo(bar)}(\".encode(\"utf-8\")',\n+            'f\"{foo(bar)}(\".encode()',\n+            id='f-string with function call',\n+        ),\n     ),\n )\n def test_fix_encode(s, expected):\n",
+  "test_output": "........................................................................ [  7%]\n........................................................................ [ 14%]\n........................................................................ [ 21%]\n........................................................................ [ 28%]\n........................................................................ [ 36%]\n........................................................................ [ 43%]\n........................................................................ [ 50%]\n..................xxxx.................................................. [ 57%]\n........................................................................ [ 64%]\n........................................................................ [ 72%]\n........................................................................ [ 79%]\n........................................................................ [ 86%]\n........................................................................ [ 93%]\n.............................................................            [100%]\n993 passed, 4 xfailed in 1.16s\n",
+  "tool_call_count": 14,
+  "duration_seconds": 76.1,
+  "tokens_used": 3319,
+  "cost_usd": 0.122295,
+  "base_ref": "7dc1fb3d169df9720b921f645db2dc036b7fa3ab",
+  "model_verdict": "FIXED",
+  "files_changed": [
+    "pyupgrade/_plugins/default_encoding.py",
+    "tests/features/default_encoding_test.py"
+  ],
+  "tests_passed": 993,
+  "tests_failed": 0,
+  "touched_tests_only": false,
+  "transcript": [
+    {
+      "n": 1,
+      "tool": "grep_code",
+      "args": {
+        "pattern": "encode",
+        "path_glob": "pyupgrade/_plugins/*.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 2,
+      "tool": "read_file",
+      "args": {
+        "path": "pyupgrade/_plugins/default_encoding.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 3,
+      "tool": "grep_code",
+      "args": {
+        "pattern": "def find_token|def find_op|def find_closing_bracket",
+        "path_glob": "pyupgrade/_token_helpers.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 4,
+      "tool": "read_file",
+      "args": {
+        "path": "pyupgrade/_token_helpers.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 5,
+      "tool": "apply_patch",
+      "args": {
+        "diff": "--- a/pyupgrade/_plugins/default_encoding.py\n+++ b/pyupgrade/_plugins/default_encoding.py\n@@ -13,11 +13,12 @@ from pyupgrade._data import TokenFunc\n from pyupgrade._string_helpers import is_codec\n from pyupgrade._token_helpers import find_closing_bracket\n from pyupgrade._token_helpers import find_op\n+from pyupgrade._token_helpers import find_name\n \n \n def _fix_default_encoding(i: int, tokens: list[Token]) -> None:\n-    i = find_op(tokens, i + 1, '(')\n+    i = find_name(tokens, i, 'encode')\n+    i = find_op(tokens, i + 1, '(')\n     j = find_closing_bracket(tokens, i)\n     del tokens[i + 1:j]\n \n"
+      },
+      "ok": true
+    },
+    {
+      "n": 6,
+      "tool": "read_file",
+      "args": {
+        "path": "pyupgrade/_plugins/default_encoding.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 7,
+      "tool": "apply_patch",
+      "args": {
+        "diff": "--- a/pyupgrade/_plugins/default_encoding.py\n+++ b/pyupgrade/_plugins/default_encoding.py\n@@ -13,8 +13,8 @@ from pyupgrade._data import TokenFunc\n from pyupgrade._string_helpers import is_codec\n from pyupgrade._token_helpers import find_closing_bracket\n from pyupgrade._token_helpers import find_op\n+from pyupgrade._token_helpers import find_name\n \n-from pyupgrade._token_helpers import find_name\n \n \n def _fix_default_encoding(i: int, tokens: list[Token]) -> None:\n"
+      },
+      "ok": false
+    },
+    {
+      "n": 8,
+      "tool": "run_tests",
+      "args": {},
+      "ok": true
+    },
+    {
+      "n": 9,
+      "tool": "read_file",
+      "args": {
+        "path": "tests/features/default_encoding_test.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 10,
+      "tool": "apply_patch",
+      "args": {
+        "diff": "--- a/tests/features/default_encoding_test.py\n+++ b/tests/features/default_encoding_test.py\n@@ -37,6 +37,11 @@\n             'f\"{x}(\".encode(\"utf-8\")',\n             'f\"{x}(\".encode()',\n             id='3.12+ handle open brace in fstring',\n+        ),\n+        pytest.param(\n+            'f\"{foo(bar)}(\".encode(\"utf-8\")',\n+            'f\"{foo(bar)}(\".encode()',\n+            id='f-string with function call',\n         ),\n     ),\n )\n"
+      },
+      "ok": true
+    },
+    {
+      "n": 11,
+      "tool": "run_tests",
+      "args": {},
+      "ok": true
+    },
+    {
+      "n": 12,
+      "tool": "git_diff",
+      "args": {},
+      "ok": true
+    },
+    {
+      "n": 13,
+      "tool": "write_file",
+      "args": {
+        "path": "pyupgrade/_plugins/default_encoding.py.rej",
+        "content": ""
+      },
+      "ok": true
+    },
+    {
+      "n": 14,
+      "tool": "run_tests",
+      "args": {},
+      "ok": true
+    }
+  ],
+  "expected": "fixed",
+  "truth_files": [
+    "pyupgrade/_plugins/default_encoding.py",
+    "pyupgrade/_token_helpers.py",
+    "tests/features/default_encoding_test.py"
+  ]
+}

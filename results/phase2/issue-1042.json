@@ -1,0 +1,126 @@
+{
+  "issue_id": "asottile/pyupgrade#1042",
+  "status": "fixed",
+  "stop_reason": "model_finished",
+  "diff": "diff --git a/pyupgrade/_plugins/typing_pep563.py b/pyupgrade/_plugins/typing_pep563.py\nindex 7bbe403..03726da 100644\n--- a/pyupgrade/_plugins/typing_pep563.py\n+++ b/pyupgrade/_plugins/typing_pep563.py\n@@ -6,6 +6,7 @@ import sys\n from collections.abc import Iterable\n from collections.abc import Sequence\n \n+from tokenize_rt import NON_CODING_TOKENS\n from tokenize_rt import Offset\n \n from pyupgrade._ast_helpers import ast_to_offset\n@@ -23,6 +24,20 @@ def _supported_version(state: State) -> bool:\n \n \n def _dequote(i: int, tokens: list[Token], *, new: str) -> None:\n+    # an implicitly-concatenated string may span multiple STRING tokens --\n+    # find the end of the string literal and collapse it into one token\n+    j = i\n+    end = i\n+    while True:\n+        if tokens[j].name == 'STRING':\n+            end = j\n+            j += 1\n+        elif tokens[j].name in NON_CODING_TOKENS:\n+            j += 1\n+        else:\n+            break\n+    if end != i:\n+        del tokens[i + 1:end + 1]\n     tokens[i] = tokens[i]._replace(src=new)\n \n \ndiff --git a/tests/features/typing_pep563_test.py b/tests/features/typing_pep563_test.py\nindex b71f884..80e9935 100644\n--- a/tests/features/typing_pep563_test.py\n+++ b/tests/features/typing_pep563_test.py\n@@ -365,6 +365,20 @@ def test_fix_typing_pep563_noop(s):\n \n             id='posonly args',\n         ),\n+        pytest.param(\n+            'from __future__ import annotations\\n'\n+            'a: (\\n'\n+            \"    'str | '\\n\"\n+            \"    'int'\\n\"\n+            ')\\n',\n+\n+            'from __future__ import annotations\\n'\n+            'a: (\\n'\n+            '    str | int\\n'\n+            ')\\n',\n+\n+            id='implicit concatenation',\n+        ),\n     ),\n )\n def test_fix_typing_pep563(s, expected):\n",
+  "test_output": "........................................................................ [  7%]\n........................................................................ [ 14%]\n........................................................................ [ 21%]\n........................................................................ [ 28%]\n........................................................................ [ 35%]\n........................................................................ [ 42%]\n........................................................................ [ 49%]\n..................xxxx.................................................. [ 56%]\n........................................................................ [ 63%]\n........................................................................ [ 70%]\n........................................................................ [ 78%]\n........................................................................ [ 85%]\n........................................................................ [ 92%]\n........................................................................ [ 99%]\n.......                                                                  [100%]\n1011 passed, 4 xfailed in 1.22s\n",
+  "tool_call_count": 12,
+  "duration_seconds": 67.7,
+  "tokens_used": 3267,
+  "cost_usd": 0.144539,
+  "base_ref": "46c3d526905780be88d227f46e19f24f2593fbbe",
+  "model_verdict": "FIXED",
+  "files_changed": [
+    "pyupgrade/_plugins/typing_pep563.py",
+    "tests/features/typing_pep563_test.py"
+  ],
+  "tests_passed": 1011,
+  "tests_failed": 0,
+  "touched_tests_only": false,
+  "transcript": [
+    {
+      "n": 1,
+      "tool": "grep_code",
+      "args": {
+        "pattern": "annotation",
+        "path_glob": "pyupgrade/_plugins/*.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 2,
+      "tool": "read_file",
+      "args": {
+        "path": "pyupgrade/_plugins/typing_pep563.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 3,
+      "tool": "grep_code",
+      "args": {
+        "pattern": "TokenFunc|reversed_enumerate|_fix_plugins|def _fix_py3",
+        "path_glob": "pyupgrade/_main.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 4,
+      "tool": "read_file",
+      "args": {
+        "path": "pyupgrade/_main.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 5,
+      "tool": "read_file",
+      "args": {
+        "path": "tests/features/typing_pep563_test.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 6,
+      "tool": "grep_code",
+      "args": {
+        "pattern": "def find_token|STRING|NON_CODING",
+        "path_glob": "pyupgrade/_token_helpers.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 7,
+      "tool": "grep_code",
+      "args": {
+        "pattern": "NON_CODING_TOKENS",
+        "path_glob": "*"
+      },
+      "ok": true
+    },
+    {
+      "n": 8,
+      "tool": "grep_code",
+      "args": {
+        "pattern": "NON_CODING_TOKENS = ",
+        "path_glob": "*"
+      },
+      "ok": true
+    },
+    {
+      "n": 9,
+      "tool": "apply_patch",
+      "args": {
+        "diff": "--- a/pyupgrade/_plugins/typing_pep563.py\n+++ b/pyupgrade/_plugins/typing_pep563.py\n@@ -5,6 +5,7 @@ import functools\n import sys\n from collections.abc import Iterable\n from collections.abc import Sequence\n \n+from tokenize_rt import NON_CODING_TOKENS\n from tokenize_rt import Offset\n \n from pyupgrade._ast_helpers import ast_to_offset\n@@ -21,8 +22,20 @@ def _supported_version(state: State) -> bool:\n     )\n \n \n def _dequote(i: int, tokens: list[Token], *, new: str) -> None:\n-    tokens[i] = tokens[i]._replace(src=new)\n+    # an implicitly-concatenated string may span multiple STRING tokens --\n+    # find the end of the string literal and collapse it into one token\n+    j = i\n+    end = i\n+    while True:\n+        if tokens[j].name == 'STRING':\n+            end = j\n+            j += 1\n+        elif tokens[j].name in NON_CODING_TOKENS:\n+            j += 1\n+        else:\n+            break\n+    if end != i:\n+        del tokens[i + 1:end + 1]\n+    tokens[i] = tokens[i]._replace(src=new)\n \n \n def _get_name(node: ast.expr) -> str:\n"
+      },
+      "ok": true
+    },
+    {
+      "n": 10,
+      "tool": "read_file",
+      "args": {
+        "path": "pyupgrade/_plugins/typing_pep563.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 11,
+      "tool": "apply_patch",
+      "args": {
+        "diff": "--- a/tests/features/typing_pep563_test.py\n+++ b/tests/features/typing_pep563_test.py\n@@ -364,6 +364,17 @@ def test_fix_typing_pep563_noop(s):\n \n             id='posonly args',\n         ),\n+        pytest.param(\n+            'from __future__ import annotations\\n'\n+            'a: (\\n'\n+            \"    'str | '\\n\"\n+            \"    'int'\\n\"\n+            ')\\n',\n+\n+            'from __future__ import annotations\\n'\n+            'a: (\\n'\n+            '    str | int\\n'\n+            ')\\n',\n+\n+            id='implicit concatenation',\n+        ),\n     ),\n )\n def test_fix_typing_pep563(s, expected):\n"
+      },
+      "ok": true
+    },
+    {
+      "n": 12,
+      "tool": "run_tests",
+      "args": {},
+      "ok": true
+    }
+  ],
+  "expected": "fixed",
+  "truth_files": [
+    "pyupgrade/_plugins/typing_pep563.py",
+    "tests/features/typing_pep563_test.py"
+  ]
+}

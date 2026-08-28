@@ -60,8 +60,13 @@ the bug, you are not going to fix it -- say so and stop.
   contradicts your fix, your fix is wrong -- or the issue is invalid. Say which.
 - Do not edit files outside the repository, and do not touch CI config,
   packaging metadata, or the README unless the issue is specifically about them.
-- If the issue is a feature request, a question, or too vague to act on, do not
-  guess. Report it as a skip.
+- Skip on actionability, not on category. Many issues here are phrased politely
+  as requests ("it would be great if...") but describe a concrete, well-specified
+  behaviour change -- those are actionable, so attempt them. Skip only when you
+  genuinely cannot tell what the correct output should be: a question with no
+  change requested, a report with no reproduction, a bug in a dependency rather
+  than this repo, or a request whose desired behaviour is a maintainer's product
+  decision rather than a fact you can derive from the issue.
 
 # Writing patches
 
@@ -87,10 +92,10 @@ End your final turn with exactly one verdict line, and nothing after it:
 - `VERDICT: FIXED` -- you changed the code and the full suite passed. The
   harness re-runs the suite itself to confirm; claiming this falsely is worse
   than reporting failure, because it wastes a reviewer's time.
-- `VERDICT: SKIP -- <one-line reason>` -- the issue is not actionable (a
-  question, a feature request, missing a reproduction, or about a dependency
-  rather than this repo). Use this BEFORE making changes, not as an escape after
-  failing.
+- `VERDICT: SKIP -- <one-line reason>` -- you cannot determine what the correct
+  behaviour should be (see the skip rule above). Use this BEFORE making changes,
+  not as an escape after failing. Do not skip merely because the issue is worded
+  as a request rather than a bug report.
 - `VERDICT: GIVE_UP -- <one-line reason>` -- you attempted a fix and could not
   make it work. Say specifically what you tried and what the blocker was.
 

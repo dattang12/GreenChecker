@@ -1,0 +1,321 @@
+[
+  {
+    "issue": 1054,
+    "base_ref": "b01874bf3f2c5463a1b344e0658b1f1f4dafd2e8^1",
+    "head": "5b299acfac",
+    "base_passed": 1016,
+    "base_failed": 0,
+    "truth_test_failed": 3,
+    "status": "OK",
+    "failing": [
+      "tests/features/open_encoding_test.py::test_fix[simple case]",
+      "tests/features/open_encoding_test.py::test_fix[alternative spelling]",
+      "tests/features/open_encoding_test.py::test_fix[starargs]"
+    ]
+  },
+  {
+    "issue": 1042,
+    "base_ref": "3a1254b1d9ee85380bafa043d0a781be7b5f3c93^1",
+    "head": "46c3d52690",
+    "base_passed": 1010,
+    "base_failed": 0,
+    "truth_test_failed": 1,
+    "status": "OK",
+    "failing": [
+      "tests/features/typing_pep563_test.py::test_fix_typing_pep563[multiline implicit-concat annotation]"
+    ]
+  },
+  {
+    "issue": 1038,
+    "base_ref": "372cb618ce0368a25c97b6598e8f8778f21740d3^1",
+    "head": "afcce08e06",
+    "base_passed": 1010,
+    "base_failed": 0,
+    "status": "NO_TRUTH_TEST"
+  },
+  {
+    "issue": 989,
+    "base_ref": "2f55fdee346d7de38d1e4646f0b6c490ec7b777e^1",
+    "head": "7dc1fb3d16",
+    "base_passed": 992,
+    "base_failed": 0,
+    "truth_test_failed": 1,
+    "status": "OK",
+    "failing": [
+      "tests/features/default_encoding_test.py::test_fix_encode[f-string with function call]"
+    ]
+  },
+  {
+    "issue": 976,
+    "base_ref": "c29b8d6e0b3d34db33a4dcdc67ccb0365e150dbc^1",
+    "head": "4028fd1fd3",
+    "base_passed": 989,
+    "base_failed": 0,
+    "truth_test_failed": 0,
+    "status": "OK",
+    "failing": []
+  },
+  {
+    "issue": 975,
+    "base_ref": "466dfb1145097580f9ac8d78d9283f636b31c6ff^1",
+    "head": "c29b8d6e0b",
+    "base_passed": 992,
+    "base_failed": 0,
+    "truth_test_failed": 0,
+    "status": "NOT_REPRODUCIBLE",
+    "failing": []
+  },
+  {
+    "issue": 936,
+    "base_ref": "9a0cad2b8754e7fcc1f0e4681666d06733e51ea5^1",
+    "head": "3e4103f24b",
+    "base_passed": 976,
+    "base_failed": 0,
+    "truth_test_failed": 1,
+    "status": "OK",
+    "failing": [
+      "tests/features/shlex_join_test.py::test_shlex_join_noop[not joined with space]"
+    ]
+  },
+  {
+    "issue": 932,
+    "base_ref": "08c9c9f9f638dfbf294feb3b68729c6732cd4875^1",
+    "head": "85c6837431",
+    "base_passed": 974,
+    "base_failed": 0,
+    "truth_test_failed": 2,
+    "status": "OK",
+    "failing": [
+      "tests/features/exceptions_test.py::test_fix_exceptions[dedupe with comment.  see #932]",
+      "tests/features/exceptions_test.py::test_fix_exceptions[dedupe other exception, one contains comment.  see #932]"
+    ]
+  },
+  {
+    "issue": 918,
+    "base_ref": "b094c9d556eb578993fd0eb1c732f7544d1a4ca6^1",
+    "head": "1a0b8a1996",
+    "base_passed": 994,
+    "base_failed": 0,
+    "truth_test_failed": 16,
+    "status": "OK",
+    "failing": [
+      "tests/features/versioned_branches_test.py::test_fix_py2_blocks[sys.version_info[0] == 2]",
+      "tests/features/versioned_branches_test.py::test_fix_py2_blocks[sys.version_info[0] < 3]",
+      "tests/features/versioned_branches_test.py::test_fix_py2_blocks[sys.version_info.major == 2]"
+    ]
+  },
+  {
+    "issue": 899,
+    "base_ref": "d1518e82e8ee88b357fa620284e38ccdbbc95c91^1",
+    "head": "72041b1e37",
+    "base_passed": 946,
+    "base_failed": 0,
+    "truth_test_failed": 14,
+    "status": "OK",
+    "failing": [
+      "tests/features/defauldict_lambda_test.py::test_fix_defaultdict[call with attr, set()]",
+      "tests/features/defauldict_lambda_test.py::test_fix_defaultdict[call with attr, list()]",
+      "tests/features/defauldict_lambda_test.py::test_fix_defaultdict[call with attr, dict()]"
+    ]
+  },
+  {
+    "issue": 892,
+    "base_ref": "8fa06f448ef4fea316ab146c41f1a51c308ecac3^1",
+    "head": "b0e58ecad1",
+    "base_passed": 1029,
+    "base_failed": 0,
+    "status": "NO_TRUTH_TEST"
+  },
+  {
+    "issue": 889,
+    "base_ref": "ecaf736b283fd3543e1d23312cbe93301a553d8f^1",
+    "head": "a61ea87554",
+    "base_passed": 1026,
+    "base_failed": 0,
+    "truth_test_failed": 1,
+    "status": "OK",
+    "failing": [
+      "tests/features/format_literals_test.py::test_format_literals_noop[\"{}\\\\N{SNOWMAN}\".format(\"\")]"
+    ]
+  },
+  {
+    "issue": 854,
+    "base_ref": "e7fc4db143d719a1ecaf4b1ca435fb7f11bcd39a^1",
+    "head": "908b05599f",
+    "base_passed": 1003,
+    "base_failed": 0,
+    "truth_test_failed": 4,
+    "status": "OK",
+    "failing": [
+      "tests/features/shlex_join_test.py::test_shlex_join_fixes[generator expression]",
+      "tests/features/shlex_join_test.py::test_shlex_join_fixes[list comprehension]",
+      "tests/features/shlex_join_test.py::test_shlex_join_fixes[removes trailing comma]"
+    ]
+  },
+  {
+    "issue": 848,
+    "base_ref": "80648f7efc8ea94043f62be3ead5560d03c4e346^1",
+    "head": "a62c966784",
+    "base_passed": 1009,
+    "base_failed": 0,
+    "truth_test_failed": 2,
+    "status": "OK",
+    "failing": [
+      "tests/features/versioned_branches_test.py::test_fix_py2_blocks[elif becomes if]",
+      "tests/features/versioned_branches_test.py::test_fix_py3x_only_code[elif becomes if]"
+    ]
+  },
+  {
+    "issue": 817,
+    "base_ref": "66f78c859400c2b6b807b4629bcb7b3de2cf6820^1",
+    "head": "f8932f0b87",
+    "base_passed": 996,
+    "base_failed": 0,
+    "truth_test_failed": 1,
+    "status": "OK",
+    "failing": [
+      "tests/features/import_replaces_test.py::test_import_replaces[aliasing in multi from import]"
+    ]
+  },
+  {
+    "issue": 766,
+    "base_ref": "9969644894b1514d941e0c5914f08ec2a3c36416^1",
+    "head": "a19e73372a",
+    "base_passed": 994,
+    "base_failed": 0,
+    "truth_test_failed": 2,
+    "status": "OK",
+    "failing": [
+      "tests/features/typing_classes_test.py::test_fix_typing_named_tuple[BitOr unparse error]",
+      "tests/features/typing_classes_test.py::test_typing_typed_dict[BitOr unparse error]"
+    ]
+  },
+  {
+    "issue": 755,
+    "base_ref": "387936933d6c0ac89f615780fc96be6ded7ef9b0^1",
+    "head": "28db01a222",
+    "base_passed": 992,
+    "base_failed": 0,
+    "truth_test_failed": 1,
+    "status": "OK",
+    "failing": [
+      "tests/features/datetime_utc_alias_test.py::test_fix_datetime_utc_alias[rewriting to alias]"
+    ]
+  },
+  {
+    "issue": 749,
+    "base_ref": "443797a8b190d1f7d0409a2c911257567d6e02ff^1",
+    "head": "b499613fd3",
+    "base_passed": 1027,
+    "base_failed": 0,
+    "truth_test_failed": 2,
+    "status": "OK",
+    "failing": [
+      "tests/features/unittest_aliases_test.py::test_fix_unittest_aliases_noop[unittest.makeSuite(Tests, \"arg\")]",
+      "tests/features/unittest_aliases_test.py::test_fix_unittest_aliases_noop[unittest.makeSuite(Tests, prefix=\"arg\")]"
+    ]
+  },
+  {
+    "issue": 744,
+    "base_ref": "1268511b2d0eb7e41618365e9344e2e6ff5fdeb2^1",
+    "head": "b1f3615232",
+    "base_passed": 991,
+    "base_failed": 0,
+    "truth_test_failed": 2,
+    "status": "OK",
+    "failing": [
+      "tests/features/typing_pep646_unpack_test.py::test_typing_unpack[from typing import Generic, TypeVarTuple, Unpack\\nShape = TypeVarTuple('Shape')\\nclass C(Generic[Unpack[Shape]]):\\n    pass-from typing import Generic, TypeVarTuple, Unpack\\nShape = TypeVarTuple('Shape')\\nclass C(Generic[*Shape]):\\n    pass]",
+      "tests/features/typing_pep646_unpack_test.py::test_typing_unpack[from typing import Generic, TypeVarTuple, Unpack\\nShape = TypeVarTuple('Shape')\\nclass C(Generic[Unpack  [Shape]]):\\n    pass-from typing import Generic, TypeVarTuple, Unpack\\nShape = TypeVarTuple('Shape')\\nclass C(Generic[*Shape]):\\n    pass]"
+    ]
+  },
+  {
+    "issue": 704,
+    "base_ref": "443bc1edeaa3b28feee9937495e9d13e1f5f3a6d^1",
+    "head": "ad5d9db9a2",
+    "base_passed": 1021,
+    "base_failed": 10,
+    "status": "RED_BASE",
+    "detail": "tests/features/binary_literals_test.py::test_binary_literals[f(\\n    U\"foo\"\\n    ur\"bar\".encode()\\n)\\n-f(\\n    b\"foo\"\\n    br\"bar\"\\n)\\n], tests/features/long_literals_test.py::test_long_literals[5L-5], tests/features/long_literals_test.py::test_long_literals[5l-5]"
+  },
+  {
+    "issue": 696,
+    "base_ref": "a41a73394c6141fcc40e45473dfa39899edfbd94^1",
+    "head": "d9461f58d4",
+    "base_passed": 1011,
+    "base_failed": 10,
+    "status": "RED_BASE",
+    "detail": "tests/features/binary_literals_test.py::test_binary_literals[f(\\n    U\"foo\"\\n    ur\"bar\".encode()\\n)\\n-f(\\n    b\"foo\"\\n    br\"bar\"\\n)\\n], tests/features/long_literals_test.py::test_long_literals[5L-5], tests/features/long_literals_test.py::test_long_literals[5l-5]"
+  },
+  {
+    "issue": 678,
+    "base_ref": "7b372d1b50ad4aceac86c52adfb8cf55b84fb842^1",
+    "head": "6ef17c3cf5",
+    "base_passed": 1018,
+    "base_failed": 10,
+    "status": "RED_BASE",
+    "detail": "tests/features/binary_literals_test.py::test_binary_literals[f(\\n    U\"foo\"\\n    ur\"bar\".encode()\\n)\\n-f(\\n    b\"foo\"\\n    br\"bar\"\\n)\\n], tests/features/long_literals_test.py::test_long_literals[5L-5], tests/features/long_literals_test.py::test_long_literals[5l-5]"
+  },
+  {
+    "issue": 677,
+    "base_ref": "6ef17c3cf50d31adaea7b2f01aeae2783aa78619^1",
+    "head": "8eb196d1c3",
+    "base_passed": 1016,
+    "base_failed": 10,
+    "status": "RED_BASE",
+    "detail": "tests/features/binary_literals_test.py::test_binary_literals[f(\\n    U\"foo\"\\n    ur\"bar\".encode()\\n)\\n-f(\\n    b\"foo\"\\n    br\"bar\"\\n)\\n], tests/features/long_literals_test.py::test_long_literals[5L-5], tests/features/long_literals_test.py::test_long_literals[5l-5]"
+  },
+  {
+    "issue": 649,
+    "base_ref": "f028b3da9930997f8f61169dc10b96f5dde2c8ba^1",
+    "head": "54356ffa8d",
+    "base_passed": 982,
+    "base_failed": 10,
+    "status": "RED_BASE",
+    "detail": "tests/features/binary_literals_test.py::test_binary_literals[f(\\n    U\"foo\"\\n    ur\"bar\".encode()\\n)\\n-f(\\n    b\"foo\"\\n    br\"bar\"\\n)\\n], tests/features/long_literals_test.py::test_long_literals[5L-5], tests/features/long_literals_test.py::test_long_literals[5l-5]"
+  },
+  {
+    "issue": 637,
+    "base_ref": "f77b9adae6893c0efcad80ac1793286d79401fa9^1",
+    "head": "cada1f22b4",
+    "base_passed": 980,
+    "base_failed": 10,
+    "status": "RED_BASE",
+    "detail": "tests/features/binary_literals_test.py::test_binary_literals[f(\\n    U\"foo\"\\n    ur\"bar\".encode()\\n)\\n-f(\\n    b\"foo\"\\n    br\"bar\"\\n)\\n], tests/features/long_literals_test.py::test_long_literals[5L-5], tests/features/long_literals_test.py::test_long_literals[5l-5]"
+  },
+  {
+    "issue": 620,
+    "base_ref": "181f29de0620df48f56036803433df6a07a2924e^1",
+    "head": "e4f7820376",
+    "base_passed": 979,
+    "base_failed": 10,
+    "status": "RED_BASE",
+    "detail": "tests/features/binary_literals_test.py::test_binary_literals[f(\\n    U\"foo\"\\n    ur\"bar\".encode()\\n)\\n-f(\\n    b\"foo\"\\n    br\"bar\"\\n)\\n], tests/features/long_literals_test.py::test_long_literals[5L-5], tests/features/long_literals_test.py::test_long_literals[5l-5]"
+  },
+  {
+    "issue": 610,
+    "base_ref": "066fc84e6f0207028b6e92a6ee808a70252c4df0^1",
+    "head": "d71f806ce2",
+    "base_passed": 977,
+    "base_failed": 10,
+    "status": "RED_BASE",
+    "detail": "tests/features/binary_literals_test.py::test_binary_literals[f(\\n    U\"foo\"\\n    ur\"bar\".encode()\\n)\\n-f(\\n    b\"foo\"\\n    br\"bar\"\\n)\\n], tests/features/long_literals_test.py::test_long_literals[5L-5], tests/features/long_literals_test.py::test_long_literals[5l-5]"
+  },
+  {
+    "issue": 583,
+    "base_ref": "e240dd0c9ced40faad014374029b057caac5c5e4^1",
+    "head": "234e07160f",
+    "base_passed": 971,
+    "base_failed": 10,
+    "status": "RED_BASE",
+    "detail": "tests/features/binary_literals_test.py::test_binary_literals[f(\\n    U\"foo\"\\n    ur\"bar\".encode()\\n)\\n-f(\\n    b\"foo\"\\n    br\"bar\"\\n)\\n], tests/features/long_literals_test.py::test_long_literals[5L-5], tests/features/long_literals_test.py::test_long_literals[5l-5]"
+  },
+  {
+    "issue": 576,
+    "base_ref": "ab02f4a482f4c50331642037b215e94c169f0aef^1",
+    "head": "7f31a6d991",
+    "base_passed": 966,
+    "base_failed": 10,
+    "status": "RED_BASE",
+    "detail": "tests/features/binary_literals_test.py::test_binary_literals[f(\\n    U\"foo\"\\n    ur\"bar\".encode()\\n)\\n-f(\\n    b\"foo\"\\n    br\"bar\"\\n)\\n], tests/features/long_literals_test.py::test_long_literals[5L-5], tests/features/long_literals_test.py::test_long_literals[5l-5]"
+  }
+]

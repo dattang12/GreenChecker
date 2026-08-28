@@ -1,0 +1,539 @@
+[
+  {
+    "issue": 1054,
+    "issue_title": "[PEP 686] When running on python 3.15, remove encoding=\"UTF-8",
+    "pr": 1077,
+    "pr_title": "remove open(..., encoding=\"utf-8\") for `--py315-plus`",
+    "merge_commit": "b01874bf3f2c5463a1b344e0658b1f1f4dafd2e8",
+    "merged_at": "2026-08-12T20:35:32Z",
+    "link_strength": "strong",
+    "base_ref": "b01874bf3f2c5463a1b344e0658b1f1f4dafd2e8^1",
+    "truth_src_files": [
+      "README.md",
+      "pyupgrade/_ast_helpers.py",
+      "pyupgrade/_plugins/open_encoding.py",
+      "pyupgrade/_plugins/open_mode.py"
+    ],
+    "truth_test_files": [
+      "tests/features/open_encoding_test.py"
+    ],
+    "truth_churn": 142,
+    "truth_diff": "@@ -805,3 +805,13 @@ Availability:\n -_MISSING = object()\n +_MISSING = sentinel('_MISSING')\n ```\n+\n+### utf-8 mode for `open`\n+\n+Availability:\n+- `--py315-plus` is passed on the commandline.\n+\n+```diff\n+-with open(fname, encoding=\"utf-8\") as f:\n++with open(fname) as f:\n+```\n@@ -3,6 +3,7 @@\n import ast\n import warnings\n from collections.abc import Container\n+from typing import NamedTuple\n \n from tokenize_rt import Offset\n \n@@ -66,3 +67,16 @@ def is_type_check(node: ast.AST) -> bool:\n         len(node.args) == 2 and\n         not has_starargs(node)\n     )\n+\n+\n+class FunctionArg(NamedTuple):\n+    arg_idx: int\n+    value: ast.expr\n+\n+\n+def find_named_arg(node: ast.Call, arg: str) -> FunctionArg | None:\n+    for n, keyword in enumerate(node.keywords):\n+        if keyword.arg == arg:\n+            return FunctionArg(n, keyword.value)\n+    else:\n+        return None\n@@ -0,0 +1,50 @@\n+from __future__ import annotations\n+\n+import ast\n+import functools\n+from collections.abc import Iterable\n+\n+from tokenize_rt import Offset\n+from tokenize_rt import Token\n+\n+from pyupgrade._ast_helpers import ast_to_offset\n+from pyupgrade._ast_helpers import find_named_arg\n+from pyupgrade._data import register\n+from pyupgrade._data import State\n+from pyupgrade._data import TokenFunc\n+from pyupgrade._string_helpers import is_codec\n+from pyupgrade._token_helpers import delete_argument\n+from pyupgrade._token_helpers import find_op\n+from pyupgrade._token_helpers import parse_call_args\n+\n+\n+def _remove_encoding(i: int, tokens: list[Token], *, arg_idx: int) -> None:\n+    j = find_op(tokens, i, '(')\n+    func_args, _ = parse_call_args(tokens, j)\n+    delete_argument(arg_idx, tokens, func_args)\n+\n+\n+@register(ast.Call)\n+def visit_Call(\n+        state: State,\n+        node: ast.Call,\n+        parent: ast.AST,\n+) -> Iterable[tuple[Offset, TokenFunc]]:\n+    if (\n+            state.settings.min_version >= (3, 15) and\n+            isinstance(node.func, ast.Name) and\n+            node.func.id == 'open' and\n+            node.keywords\n+    ):\n+        encoding = find_named_arg(node, 'encoding')\n+        if (\n+                encoding is not None and\n+                isinstance(encoding.value, ast.Constant) and\n+                isinstance(encoding.value.value, str) and\n+                is_codec(encoding.value.value, 'utf-8')\n+        ):\n+            func = functools.partial(\n+                _remove_encoding,\n+                arg_idx=len(node.args) + encoding.arg_idx,\n+            )\n+            yield ast_to_offset(node), func\n@@ -4,13 +4,13 @@\n import functools\n import itertools\n from collections.abc import Iterable\n-from typing import NamedTuple\n \n from tokenize_rt import Offset\n from tokenize_rt import Token\n from tokenize_rt import tokens_to_src\n \n from pyupgrade._ast_helpers import ast_to_offset\n+from pyupgrade._ast_helpers import find_named_arg\n from pyupgrade._ast_helpers import has_starargs\n from pyupgrade._data import register\n from pyupgrade._data import State\n@@ -35,11 +35,6 @@ def _permute(*args: str) -> tuple[str, ...]:\n MODE_REPLACE = MODE_REPLACE_R | MODE_REMOVE_T | MODE_REMOVE_U\n \n \n-class FunctionArg(NamedTuple):\n-    arg_idx: int\n-    value: ast.expr\n-\n-\n def _fix_open_mode(i: int, tokens: list[Token], *, arg_idx: int) -> None:\n     j = find_op(tokens, i, '(')\n     func_args, end = parse_call_args(tokens, j)\n@@ -93,14 +88,7 @@ def visit_Call(\n                 func = functools.partial(_fix_open_mode, arg_idx=1)\n                 yield ast_to_offset(node), func\n         elif node.keywords and (len(node.keywords) + len(node.args) > 1):\n-            mode = next(\n-                (\n-                    FunctionArg(n, keyword.value)\n-                    for n, keyword in enumerate(node.keywords)\n-                    if keyword.arg == 'mode'\n-                ),\n-                None,\n-            )\n+            mode = find_named_arg(node, 'mode')\n             if (\n                 mode is not None and\n                 isinstance(mode.value, ast.Constant) and\n@@ -0,0 +1,52 @@\n+from __future__ import annotations\n+\n+import pytest\n+\n+from pyupgrade._data import Settings\n+from pyupgrade._main import _fix_plugins\n+\n+\n+def test_noop_before_315():\n+    s = 'open(\"foo\", encoding=\"utf-8\")'\n+    assert _fix_plugins(s, settings=Settings(min_version=(3, 14))) == s\n+\n+\n+@pytest.mark.parametrize(\n+    's',\n+    (\n+        # already removed\n+        'open(\"foo\")',\n+        # alternative encoding\n+        'open(\"foo\", encoding=\"latin1\")',\n+        'open(\"foo\", encoding=\"us-ascii\")',\n+        # don't remove this, they meant to use `encoding=`\n+        'open(\"foo\", \"r\", \"utf-8\")',\n+    ),\n+)\n+def test_noop(s):\n+    assert _fix_plugins(s, settings=Settings(min_version=(3, 15))) == s\n+\n+\n+@pytest.mark.parametrize(\n+    ('s', 'expected'),\n+    (\n+        pytest.param(\n+            'open(\"foo\", encoding=\"utf-8\")\\n',\n+            'open(\"foo\")\\n',\n+            id='simple case',\n+        ),\n+        pytest.param(\n+            'open(\"foo\", encoding=\"UTF8\")\\n',\n+            'open(\"foo\")\\n',\n+            id='alternative spelling',\n+        ),\n+        pytest.param(\n+            'open(*args, encoding=\"utf-8\")',\n+            'open(*args)',\n+            id='starargs',\n+        ),\n+    ),\n+)\n+def test_fix(s, expected):\n+    ret = _fix_plugins(s, settings=Settings(min_version=(3, 15)))\n+    assert ret == expected"
+  },
+  {
+    "issue": 1042,
+    "issue_title": "annotation unstringifier with implicit concat",
+    "pr": 1043,
+    "pr_title": "fix unstringing multiline string annotations",
+    "merge_commit": "3a1254b1d9ee85380bafa043d0a781be7b5f3c93",
+    "merged_at": "2025-11-19T00:29:45Z",
+    "link_strength": "strong",
+    "base_ref": "3a1254b1d9ee85380bafa043d0a781be7b5f3c93^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/typing_pep563.py"
+    ],
+    "truth_test_files": [
+      "tests/features/typing_pep563_test.py"
+    ],
+    "truth_churn": 25,
+    "truth_diff": "@@ -6,6 +6,7 @@\n from collections.abc import Iterable\n from collections.abc import Sequence\n \n+from tokenize_rt import NON_CODING_TOKENS\n from tokenize_rt import Offset\n \n from pyupgrade._ast_helpers import ast_to_offset\n@@ -23,7 +24,15 @@ def _supported_version(state: State) -> bool:\n \n \n def _dequote(i: int, tokens: list[Token], *, new: str) -> None:\n-    tokens[i] = tokens[i]._replace(src=new)\n+    end = i + 1\n+    for j in range(end, len(tokens)):\n+        if tokens[j].name == 'STRING':\n+            end = j + 1\n+        elif tokens[j].name not in NON_CODING_TOKENS:\n+            break\n+    else:\n+        raise AssertionError('past end?')\n+    tokens[i:end] = [tokens[i]._replace(src=new)]\n \n \n def _get_name(node: ast.expr) -> str:\n@@ -365,6 +365,20 @@ def test_fix_typing_pep563_noop(s):\n \n             id='posonly args',\n         ),\n+        pytest.param(\n+            'from __future__ import annotations\\n'\n+            'x: (\\n'\n+            '    \"int | \"\\n'\n+            '    \"str\"\\n'\n+            ')\\n',\n+\n+            'from __future__ import annotations\\n'\n+            'x: (\\n'\n+            '    int | str\\n'\n+            ')\\n',\n+\n+            id='multiline implicit-concat annotation',\n+        ),\n     ),\n )\n def test_fix_typing_pep563(s, expected):"
+  },
+  {
+    "issue": 1038,
+    "issue_title": "pyupgrade fails with the current Python 3.15-dev implementation with TypeError",
+    "pr": 1040,
+    "pr_title": "vendor cookie_re from cpython",
+    "merge_commit": "372cb618ce0368a25c97b6598e8f8778f21740d3",
+    "merged_at": "2025-11-08T20:52:36Z",
+    "link_strength": "strong",
+    "base_ref": "372cb618ce0368a25c97b6598e8f8778f21740d3^1",
+    "truth_src_files": [
+      "pyupgrade/_main.py"
+    ],
+    "truth_test_files": [],
+    "truth_churn": 6,
+    "truth_diff": "@@ -276,6 +276,10 @@ def _fix_encode_to_binary(tokens: list[Token], i: int) -> None:\n     del tokens[victims]\n \n \n+# copied from 3.15 @ 0ac890bea7\n+_cookie_re = re.compile(r'^[ \\t\\f]*#.*?coding[:=][ \\t]*([-\\w.]+)', re.ASCII)\n+\n+\n def _fix_tokens(contents_text: str) -> str:\n     try:\n         tokens = src_to_tokens(contents_text)\n@@ -294,7 +298,7 @@ def _fix_tokens(contents_text: str) -> str:\n                 token.utf8_byte_offset == 0 and\n                 token.line < 3 and\n                 token.name == 'COMMENT' and\n-                tokenize.cookie_re.match(token.src)\n+                _cookie_re.match(token.src)\n         ):\n             del tokens[i]\n             assert tokens[i].name == 'NL', tokens[i].name"
+  },
+  {
+    "issue": 989,
+    "issue_title": "The `.encode(\"utf-8\")` fixer generates wrong code",
+    "pr": 994,
+    "pr_title": "fix search for .encode(...) call with 3.12+ f-string tokens",
+    "merge_commit": "2f55fdee346d7de38d1e4646f0b6c490ec7b777e",
+    "merged_at": "2024-12-17T01:29:04Z",
+    "link_strength": "strong",
+    "base_ref": "2f55fdee346d7de38d1e4646f0b6c490ec7b777e^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/default_encoding.py",
+      "pyupgrade/_token_helpers.py"
+    ],
+    "truth_test_files": [
+      "tests/features/default_encoding_test.py"
+    ],
+    "truth_churn": 23,
+    "truth_diff": "@@ -12,12 +12,12 @@\n from pyupgrade._data import State\n from pyupgrade._data import TokenFunc\n from pyupgrade._string_helpers import is_codec\n+from pyupgrade._token_helpers import find_call\n from pyupgrade._token_helpers import find_closing_bracket\n-from pyupgrade._token_helpers import find_op\n \n \n def _fix_default_encoding(i: int, tokens: list[Token]) -> None:\n-    i = find_op(tokens, i + 1, '(')\n+    i = find_call(tokens, i + 1)\n     j = find_closing_bracket(tokens, i)\n     del tokens[i + 1:j]\n \n@@ -48,6 +48,20 @@ def find_op(tokens: list[Token], i: int, src: str) -> int:\n     return _find_token(tokens, i, 'OP', src)\n \n \n+def find_call(tokens: list[Token], i: int) -> int:\n+    depth = 0\n+    while depth or not tokens[i].matches(name='OP', src='('):\n+        if is_open(tokens[i]):  # pragma: >3.12 cover\n+            depth += 1\n+        elif is_close(tokens[i]):\n+            # why max(...)? --\n+            # (\"something\").method(...)\n+            #  ^--start   target--^\n+            depth = max(depth - 1, 0)\n+        i += 1\n+    return i\n+\n+\n def find_end(tokens: list[Token], i: int) -> int:\n     while tokens[i].name != 'NEWLINE':\n         i += 1\n@@ -38,6 +38,11 @@\n             'f\"{x}(\".encode()',\n             id='3.12+ handle open brace in fstring',\n         ),\n+        pytest.param(\n+            'f\"{foo(bar)}(\".encode(\"utf-8\")',\n+            'f\"{foo(bar)}(\".encode()',\n+            id='f-string with function call',\n+        ),\n     ),\n )\n def test_fix_encode(s, expected):"
+  },
+  {
+    "issue": 976,
+    "issue_title": "pyupgrade may output opening braces at the start of an f-string expression",
+    "pr": 979,
+    "pr_title": "prevent dict/set rewrite directly in f-string placeholder",
+    "merge_commit": "c29b8d6e0b3d34db33a4dcdc67ccb0365e150dbc",
+    "merged_at": "2024-10-21T23:12:18Z",
+    "link_strength": "strong",
+    "base_ref": "c29b8d6e0b3d34db33a4dcdc67ccb0365e150dbc^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/dict_literals.py",
+      "pyupgrade/_plugins/set_literals.py"
+    ],
+    "truth_test_files": [
+      "tests/features/dict_literals_test.py",
+      "tests/features/set_literals_test.py"
+    ],
+    "truth_churn": 14,
+    "truth_diff": "@@ -53,6 +53,7 @@ def visit_Call(\n         parent: ast.AST,\n ) -> Iterable[tuple[Offset, TokenFunc]]:\n     if (\n+            not isinstance(parent, ast.FormattedValue) and\n             isinstance(node.func, ast.Name) and\n             node.func.id == 'dict' and\n             len(node.args) == 1 and\n@@ -50,6 +50,7 @@ def visit_Call(\n         parent: ast.AST,\n ) -> Iterable[tuple[Offset, TokenFunc]]:\n     if (\n+            not isinstance(parent, ast.FormattedValue) and\n             isinstance(node.func, ast.Name) and\n             node.func.id == 'set' and\n             len(node.args) == 1 and\n@@ -19,6 +19,10 @@\n         # Don't rewrite kwargd dicts\n         'dict(((a, b) for a, b in y), x=1)',\n         'dict(((a, b) for a, b in y), **kwargs)',\n+        pytest.param(\n+            'f\"{dict((a, b) for a, b in y)}\"',\n+            id='directly inside f-string placeholder',\n+        ),\n     ),\n )\n def test_fix_dict_noop(s):\n@@ -14,6 +14,14 @@\n         # Don't touch weird looking function calls -- use autopep8 or such\n         # first\n         'set ((1, 2))',\n+        pytest.param(\n+            'f\"{set((1, 2))}\"',\n+            id='set directly inside f-string placeholder',\n+        ),\n+        pytest.param(\n+            'f\"{set(x for x in y)}\"',\n+            id='set comp directly inside f-string placeholder',\n+        ),\n     ),\n )\n def test_fix_sets_noop(s):"
+  },
+  {
+    "issue": 975,
+    "issue_title": "Literals containing \\N escapes",
+    "pr": 980,
+    "pr_title": "fix named escapes in FSTRING_MIDDLE",
+    "merge_commit": "466dfb1145097580f9ac8d78d9283f636b31c6ff",
+    "merged_at": "2024-10-22T00:20:50Z",
+    "link_strength": "strong",
+    "base_ref": "466dfb1145097580f9ac8d78d9283f636b31c6ff^1",
+    "truth_src_files": [
+      "pyupgrade/_string_helpers.py",
+      "setup.cfg"
+    ],
+    "truth_test_files": [
+      "tests/main_test.py"
+    ],
+    "truth_churn": 18,
+    "truth_diff": "@@ -1,11 +1,11 @@\n from __future__ import annotations\n \n import codecs\n-import re\n import string\n from typing import Optional\n \n-NAMED_UNICODE_RE = re.compile(r'(?<!\\\\)(?:\\\\\\\\)*(\\\\N\\{[^}]+\\})')\n+from tokenize_rt import curly_escape\n+from tokenize_rt import NAMED_UNICODE_RE\n \n DotFormatPart = tuple[str, Optional[str], Optional[str], Optional[str]]\n \n@@ -53,16 +53,6 @@ def _convert_tup(tup: DotFormatPart) -> str:\n     return ''.join(_convert_tup(tup) for tup in parsed)\n \n \n-def curly_escape(s: str) -> str:\n-    parts = NAMED_UNICODE_RE.split(s)\n-    return ''.join(\n-        part.replace('{', '{{').replace('}', '}}')\n-        if not NAMED_UNICODE_RE.fullmatch(part)\n-        else part\n-        for part in parts\n-    )\n-\n-\n def is_codec(encoding: str, name: str) -> bool:\n     try:\n         return codecs.lookup(encoding).name == name\n@@ -19,7 +19,7 @@ classifiers =\n [options]\n packages = find:\n install_requires =\n-    tokenize-rt>=5.2.0\n+    tokenize-rt>=6.1.0\n python_requires = >=3.9\n \n [options.packages.find]\n@@ -25,6 +25,8 @@ def test_main_noop(tmpdir, capsys):\n x=version_info\n def f():\n     global x, y\n+\n+f'hello snowman: \\\\N{SNOWMAN}'\n '''\n     f = tmpdir.join('f.py')\n     f.write(s)"
+  },
+  {
+    "issue": 936,
+    "issue_title": "\"\".join(shlex.quote(...) ...) to shlex.join(...) is too eager",
+    "pr": 939,
+    "pr_title": "only replace to shlex.join if joined with a space",
+    "merge_commit": "9a0cad2b8754e7fcc1f0e4681666d06733e51ea5",
+    "merged_at": "2024-03-24T17:06:10Z",
+    "link_strength": "strong",
+    "base_ref": "9a0cad2b8754e7fcc1f0e4681666d06733e51ea5^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/shlex_join.py"
+    ],
+    "truth_test_files": [
+      "tests/features/shlex_join_test.py"
+    ],
+    "truth_churn": 8,
+    "truth_diff": "@@ -39,7 +39,7 @@ def visit_Call(\n     if (\n             isinstance(node.func, ast.Attribute) and\n             isinstance(node.func.value, ast.Constant) and\n-            isinstance(node.func.value.value, str) and\n+            node.func.value.value == ' ' and\n             node.func.attr == 'join' and\n             not node.keywords and\n             len(node.args) == 1 and\n@@ -15,6 +15,12 @@\n             (3, 8),\n             id='quote from-imported',\n         ),\n+        pytest.param(\n+            'import shlex\\n'\n+            '\"wat\".join(shlex.quote(arg) for arg in cmd)\\n',\n+            (3, 8),\n+            id='not joined with space',\n+        ),\n         pytest.param(\n             'import shlex\\n'\n             '\" \".join(shlex.quote(arg) for arg in cmd)\\n',"
+  },
+  {
+    "issue": 932,
+    "issue_title": "multi-line exception with duplicate BaseException and comments gives invalid code",
+    "pr": 933,
+    "pr_title": "handle constant folding with comments on multilines better",
+    "merge_commit": "08c9c9f9f638dfbf294feb3b68729c6732cd4875",
+    "merged_at": "2024-02-18T16:51:58Z",
+    "link_strength": "strong",
+    "base_ref": "08c9c9f9f638dfbf294feb3b68729c6732cd4875^1",
+    "truth_src_files": [
+      "pyupgrade/_token_helpers.py"
+    ],
+    "truth_test_files": [
+      "tests/features/exceptions_test.py"
+    ],
+    "truth_churn": 34,
+    "truth_diff": "@@ -369,6 +369,14 @@ def arg_str(tokens: list[Token], start: int, end: int) -> str:\n     return tokens_to_src(tokens[start:end]).strip()\n \n \n+def _arg_str_no_comment(tokens: list[Token], start: int, end: int) -> str:\n+    arg_tokens = [\n+        token for token in tokens[start:end]\n+        if token.name != 'COMMENT'\n+    ]\n+    return tokens_to_src(arg_tokens).strip()\n+\n+\n def _arg_contains_newline(tokens: list[Token], start: int, end: int) -> bool:\n     while tokens[start].name in {'NL', 'NEWLINE', UNIMPORTANT_WS}:\n         start += 1\n@@ -473,7 +481,7 @@ def replace_argument(\n def constant_fold_tuple(i: int, tokens: list[Token]) -> None:\n     start = find_op(tokens, i, '(')\n     func_args, end = parse_call_args(tokens, start)\n-    arg_strs = [arg_str(tokens, *arg) for arg in func_args]\n+    arg_strs = [_arg_str_no_comment(tokens, *arg) for arg in func_args]\n \n     unique_args = tuple(dict.fromkeys(arg_strs))\n \n@@ -225,6 +225,30 @@ def test_fix_exceptions_version_specific_noop(s, version):\n \n             id='leave unrelated error names alone',\n         ),\n+        pytest.param(\n+            'try: ...\\n'\n+            'except (\\n'\n+            '    BaseException,\\n'\n+            '    BaseException # b\\n'\n+            '): ...\\n',\n+\n+            'try: ...\\n'\n+            'except BaseException: ...\\n',\n+\n+            id='dedupe with comment.  see #932',\n+        ),\n+        pytest.param(\n+            'try: ...\\n'\n+            'except (\\n'\n+            '    A, A,\\n'\n+            '    B  # b\\n'\n+            '): ...\\n',\n+\n+            'try: ...\\n'\n+            'except (A, B): ...\\n',\n+\n+            id='dedupe other exception, one contains comment.  see #932',\n+        ),\n     ),\n )\n def test_fix_exceptions(s, expected):"
+  },
+  {
+    "issue": 918,
+    "issue_title": "Recognize and replace `if sys.version_info[0]` blocks",
+    "pr": 1017,
+    "pr_title": "Rewrite `version_info[0]` and `version_info.major`",
+    "merge_commit": "b094c9d556eb578993fd0eb1c732f7544d1a4ca6",
+    "merged_at": "2025-06-15T17:51:20Z",
+    "link_strength": "strong",
+    "base_ref": "b094c9d556eb578993fd0eb1c732f7544d1a4ca6^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/versioned_branches.py"
+    ],
+    "truth_test_files": [
+      "tests/features/versioned_branches_test.py"
+    ],
+    "truth_churn": 244,
+    "truth_diff": "@@ -82,8 +82,20 @@ def _fix_py3_convert_elif(i: int, tokens: list[Token]) -> None:\n \n \n def _eq(test: ast.Compare, n: int) -> bool:\n+    return _cmp(test, ast.Eq, n)\n+\n+\n+def _lt(test: ast.Compare, n: int) -> bool:\n+    return _cmp(test, ast.Lt, n)\n+\n+\n+def _gte(test: ast.Compare, n: int) -> bool:\n+    return _cmp(test, ast.GtE, n)\n+\n+\n+def _cmp(test: ast.Compare, op: type[ast.cmpop], n: int) -> bool:\n     return (\n-        isinstance(test.ops[0], ast.Eq) and\n+        isinstance(test.ops[0], op) and\n         isinstance(test.comparators[0], ast.Constant) and\n         test.comparators[0].value == n\n     )\n@@ -164,6 +176,33 @@ def visit_If(\n                         for minor in range(min_version[1])\n                     )\n                 )\n+            ) or\n+            # sys.version_info[0] == 2 or < 3\n+            # sys.version_info.major == 2 or < 3\n+            (\n+                isinstance(node.test, ast.Compare) and\n+                (\n+                    (\n+                        isinstance(node.test.left, ast.Subscript) and\n+                        isinstance(node.test.left.slice, ast.Constant) and\n+                        node.test.left.slice.value == 0\n+                    ) or\n+                    (\n+                        isinstance(node.test.left, ast.Attribute) and\n+                        node.test.left.attr == 'major'\n+                    )\n+                ) and\n+                is_name_attr(\n+                    node.test.left.value,\n+                    state.from_imports,\n+                    ('sys',),\n+                    ('version_info',),\n+                ) and\n+                len(node.test.ops) == 1 and\n+                (\n+                    _eq(node.test, 2) or\n+                    _lt(node.test, 3)\n+                )\n             )\n     ):\n         if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):\n@@ -211,6 +250,33 @@ def visit_If(\n                         for minor in range(min_version[1])\n                     )\n                 )\n+            ) or\n+            # sys.version_info[0] == 3 or >= 3\n+            # sys.version_info.major == 3 or >= 3\n+            (\n+                isinstance(node.test, ast.Compare) and\n+                (\n+                    (\n+                        isinstance(node.test.left, ast.Subscript) and\n+                        isinstance(node.test.left.slice, ast.Constant) and\n+                        node.test.left.slice.value == 0\n+                    ) or\n+                    (\n+                        isinstance(node.test.left, ast.Attribute) and\n+                        node.test.left.attr == 'major'\n+                    )\n+                ) and\n+                is_name_attr(\n+                    node.test.left.value,\n+                    state.from_imports,\n+                    ('sys',),\n+                    ('version_info',),\n+                ) and\n+                len(node.test.ops) == 1 and\n+                (\n+                    _eq(node.test, 3) or\n+                    _gte(node.test, 3)\n+                )\n             )\n     ):\n         if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):\n@@ -316,6 +316,46 @@ def test_fix_py2_block_noop(s):\n \n             id='sys.version_info == 2',\n         ),\n+        pytest.param(\n+            'if sys.version_info[0] == 2:\\n'\n+            '    2\\n'\n+            'else:\\n'\n+            '    3\\n',\n+\n+            '3\\n',\n+\n+            id='sys.version_info[0] == 2',\n+        ),\n+        pytest.param(\n+            'if sys.version_info[0] < 3:\\n'\n+            '    2\\n'\n+            'else:\\n'\n+            '    3\\n',\n+\n+            '3\\n',\n+\n+            id='sys.version_info[0] < 3',\n+        ),\n+        pytest.param(\n+            'if sys.version_info.major == 2:\\n'\n+            '    2\\n'\n+            'else:\\n'\n+            '    3\\n',\n+\n+            '3\\n',\n+\n+            id='sys.version_info.major == 2',\n+        ),\n+        pytest.param(\n+            'if sys.version_info.major < 3:\\n'\n+            '    2\\n'\n+            'else:\\n'\n+            '    3\\n',\n+\n+            '3\\n',\n+\n+            id='sys.version_info.major < 3',\n+        ),\n         pytest.param(\n             'if sys.version_info < (3,):\\n'\n             '    2\\n'\n@@ -366,6 +406,46 @@ def test_fix_py2_block_noop(s):\n \n             id='sys.version_info >= (3,)',\n         ),\n+        pytest.param(\n+            'if sys.version_info[0] == 3:\\n'\n+            '    3\\n'\n+            'else:\\n'\n+            '    2\\n',\n+\n+            '3\\n',\n+\n+            id='sys.version_info[0]== 3',\n+        ),\n+        pytest.param(\n+            'if sys.version_info[0] >= 3:\\n'\n+            '    3\\n'\n+            'else:\\n'\n+            '    2\\n',\n+\n+            '3\\n',\n+\n+            id='sys.version_info[0] >= 3',\n+        ),\n+        pytest.param(\n+            'if sys.version_info.major == 3:\\n'\n+            '    3\\n'\n+            'else:\\n'\n+            '    2\\n',\n+\n+            '3\\n',\n+\n+            id='testme sys.version_info.major == 3',\n+        ),\n+        pytest.param(\n+            'if sys.version_info.major >= 3:\\n'\n+            '    3\\n'\n+            'else:\\n'\n+            '    2\\n',\n+\n+            '3\\n',\n+\n+            id='sys.version_info.major >= 3',\n+        ),\n         pytest.param(\n             'from sys import version_info\\n'\n             'if version_info > (3,):\\n'\n@@ -378,6 +458,102 @@ def test_fix_py2_block_noop(s):\n \n             id='from sys import version_info, > (3,)',\n         ),\n+        pytest.param(\n+            'from sys import version_info\\n'\n+            'if version_info[0] == 2:\\n'\n+            '    2\\n'\n+            'else:\\n'\n+            '    3\\n',\n+\n+            'from sys import version_info\\n'\n+            '3\\n',\n+\n+            id='from sys import version_info, [0] == 2',\n+        ),\n+        pytest.param(\n+            'from sys import version_info\\n'\n+            'if version_info[0] < 3:\\n'\n+            '    2\\n'\n+            'else:\\n'\n+            '    3\\n',\n+\n+            'from sys import version_info\\n'\n+            '3\\n',\n+\n+            id='from sys import version_info, [0] < 3',\n+        ),\n+        pytest.param(\n+            'from sys import version_info\\n'\n+            'if version_info.major == 2:\\n'\n+            '    2\\n'\n+            'else:\\n'\n+            '    3\\n',\n+\n+            'from sys import version_info\\n'\n+            '3\\n',\n+\n+            id='from sys import version_info, .major == 2',\n+        ),\n+        pytest.param(\n+            'from sys import version_info\\n'\n+            'if version_info.major < 3:\\n'\n+            '    2\\n'\n+            'else:\\n'\n+            '    3\\n',\n+\n+            'from sys import version_info\\n'\n+            '3\\n',\n+\n+            id='from sys import version_info, .major < 3',\n+        ),\n+        pytest.param(\n+            'from sys import version_info\\n'\n+            'if version_info[0] == 3:\\n'\n+            '    3\\n'\n+            'else:\\n'\n+            '    2\\n',\n+\n+            'from sys import version_info\\n'\n+            '3\\n',\n+\n+            id='from sys import version_info, [0] == 3',\n+        ),\n+        pytest.param(\n+            'from sys import version_info\\n'\n+            'if version_info[0] >= 3:\\n'\n+            '    3\\n'\n+            'else:\\n'\n+            '    2\\n',\n+\n+            'from sys import version_info\\n'\n+            '3\\n',\n+\n+            id='from sys import version_info, [0] >= 3',\n+        ),\n+        pytest.param(\n+            'from sys import version_info\\n'\n+            'if version_info.major == 3:\\n'\n+            '    3\\n'\n+            'else:\\n'\n+            '    2\\n',\n+\n+            'from sys import version_info\\n'\n+            '3\\n',\n+\n+            id='from sys import version_info, .major == 3',\n+        ),\n+        pytest.param(\n+            'from sys import version_info\\n'\n+            'if version_info.major >= 3:\\n'\n+            '    3\\n'\n+            'else:\\n'\n+            '    2\\n',\n+\n+            'from sys import version_info\\n'\n+            '3\\n',\n+\n+            id='from sys import version_info, .major >= 3',\n+        ),\n         pytest.param(\n             'if True:\\n'\n             '    print(1)\\n'"
+  },
+  {
+    "issue": 899,
+    "issue_title": "Upgrade `defaultdict` default_factory (simple lambdas)",
+    "pr": 901,
+    "pr_title": "Defaultdict lambdas",
+    "merge_commit": "d1518e82e8ee88b357fa620284e38ccdbbc95c91",
+    "merged_at": "2023-10-07T18:33:02Z",
+    "link_strength": "strong",
+    "base_ref": "d1518e82e8ee88b357fa620284e38ccdbbc95c91^1",
+    "truth_src_files": [
+      "README.md",
+      "pyupgrade/_data.py",
+      "pyupgrade/_plugins/defauldict_lambda.py"
+    ],
+    "truth_test_files": [
+      "tests/features/defauldict_lambda_test.py"
+    ],
+    "truth_churn": 328,
+    "truth_diff": "@@ -56,6 +56,32 @@ Sample `.pre-commit-config.yaml`:\n +{a: b for a, b in y}\n ```\n \n+### Replace unnecessary lambdas in `collections.defaultdict` calls\n+\n+```diff\n+-defaultdict(lambda: [])\n++defaultdict(list)\n+-defaultdict(lambda: list())\n++defaultdict(list)\n+-defaultdict(lambda: {})\n++defaultdict(dict)\n+-defaultdict(lambda: dict())\n++defaultdict(dict)\n+-defaultdict(lambda: ())\n++defaultdict(tuple)\n+-defaultdict(lambda: tuple())\n++defaultdict(tuple)\n+-defaultdict(lambda: set())\n++defaultdict(set)\n+-defaultdict(lambda: 0)\n++defaultdict(int)\n+-defaultdict(lambda: 0.0)\n++defaultdict(float)\n+-defaultdict(lambda: 0j)\n++defaultdict(complex)\n+-defaultdict(lambda: '')\n++defaultdict(str)\n+```\n \n ### Format Specifiers\n \n@@ -39,6 +39,7 @@ class State(NamedTuple):\n RECORD_FROM_IMPORTS = frozenset((\n     '__future__',\n     'asyncio',\n+    'collections',\n     'functools',\n     'mmap',\n     'os',\n@@ -0,0 +1,81 @@\n+from __future__ import annotations\n+\n+import ast\n+import functools\n+from typing import Iterable\n+\n+from tokenize_rt import Offset\n+from tokenize_rt import Token\n+\n+from pyupgrade._ast_helpers import ast_to_offset\n+from pyupgrade._ast_helpers import is_name_attr\n+from pyupgrade._data import register\n+from pyupgrade._data import State\n+from pyupgrade._data import TokenFunc\n+from pyupgrade._token_helpers import find_op\n+from pyupgrade._token_helpers import parse_call_args\n+\n+\n+def _eligible_lambda_replacement(lambda_expr: ast.Lambda) -> str | None:\n+    if isinstance(lambda_expr.body, ast.Constant):\n+        if lambda_expr.body.value == 0:\n+            return type(lambda_expr.body.value).__name__\n+        elif lambda_expr.body.value == '':\n+            return 'str'\n+        else:\n+            return None\n+    elif isinstance(lambda_expr.body, ast.List) and not lambda_expr.body.elts:\n+        return 'list'\n+    elif isinstance(lambda_expr.body, ast.Tuple) and not lambda_expr.body.elts:\n+        return 'tuple'\n+    elif isinstance(lambda_expr.body, ast.Dict) and not lambda_expr.body.keys:\n+        return 'dict'\n+    elif (\n+            isinstance(lambda_expr.body, ast.Call) and\n+            isinstance(lambda_expr.body.func, ast.Name) and\n+            not lambda_expr.body.args and\n+            not lambda_expr.body.keywords and\n+            lambda_expr.body.func.id in {'dict', 'list', 'set', 'tuple'}\n+    ):\n+        return lambda_expr.body.func.id\n+    else:\n+        return None\n+\n+\n+def _fix_defaultdict_first_arg(\n+        i: int,\n+        tokens: list[Token],\n+        *,\n+        replacement: str,\n+) -> None:\n+    start = find_op(tokens, i, '(')\n+    func_args, end = parse_call_args(tokens, start)\n+\n+    tokens[slice(*func_args[0])] = [Token('CODE', replacement)]\n+\n+\n+@register(ast.Call)\n+def visit_Call(\n+        state: State,\n+        node: ast.Call,\n+        parent: ast.AST,\n+) -> Iterable[tuple[Offset, TokenFunc]]:\n+    if (\n+            is_name_attr(\n+                node.func,\n+                state.from_imports,\n+                ('collections',),\n+                ('defaultdict',),\n+            ) and\n+            node.args and\n+            isinstance(node.args[0], ast.Lambda)\n+    ):\n+        replacement = _eligible_lambda_replacement(node.args[0])\n+        if replacement is None:\n+            return\n+\n+        func = functools.partial(\n+            _fix_defaultdict_first_arg,\n+            replacement=replacement,\n+        )\n+        yield ast_to_offset(node), func\n@@ -0,0 +1,220 @@\n+from __future__ import annotations\n+\n+import pytest\n+\n+from pyupgrade._data import Settings\n+from pyupgrade._main import _fix_plugins\n+\n+\n+@pytest.mark.parametrize(\n+    ('s',),\n+    (\n+        pytest.param(\n+            'from collections import defaultdict as dd\\n\\n'\n+            'dd(lambda: set())\\n',\n+            id='not following as imports',\n+        ),\n+        pytest.param(\n+            'from collections2 import defaultdict\\n\\n'\n+            'dd(lambda: dict())\\n',\n+            id='not following unknown import',\n+        ),\n+        pytest.param(\n+            'from .collections import defaultdict\\n'\n+            'defaultdict(lambda: list())\\n',\n+            id='relative imports',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: {1}))\\n',\n+            id='non empty set',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: [1]))\\n'\n+            'defaultdict(lambda: list([1])))\\n',\n+            id='non empty list',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: {1: 2})\\n',\n+            id='non empty dict, literal',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: dict([(1,2),])))\\n',\n+            id='non empty dict, call with args',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: dict(a=[1]))\\n',\n+            id='non empty dict, call with kwargs',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: (1,))\\n',\n+            id='non empty tuple, literal',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: tuple([1]))\\n',\n+            id='non empty tuple, calls with arg',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: \"AAA\")\\n'\n+            'defaultdict(lambda: \\'BBB\\')\\n',\n+            id='non empty string',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: 10)\\n'\n+            'defaultdict(lambda: -2)\\n',\n+            id='non zero integer',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: 0.2)\\n'\n+            'defaultdict(lambda: 0.00000001)\\n'\n+            'defaultdict(lambda: -2.3)\\n',\n+            id='non zero float',\n+        ),\n+        pytest.param(\n+            'import collections\\n'\n+            'collections.defaultdict(lambda: None)\\n',\n+            id='lambda: None is not equivalent to defaultdict()',\n+        ),\n+    ),\n+)\n+def test_fix_noop(s):\n+    assert _fix_plugins(s, settings=Settings()) == s\n+\n+\n+@pytest.mark.parametrize(\n+    ('s', 'expected'),\n+    (\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: set())\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(set)\\n',\n+            id='call with attr, set()',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: list())\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(list)\\n',\n+            id='call with attr, list()',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: dict())\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(dict)\\n',\n+            id='call with attr, dict()',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: tuple())\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(tuple)\\n',\n+            id='call with attr, tuple()',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: [])\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(list)\\n',\n+            id='call with attr, []',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: {})\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(dict)\\n',\n+            id='call with attr, {}',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: ())\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(tuple)\\n',\n+            id='call with attr, ()',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: \"\")\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(str)\\n',\n+            id='call with attr, empty string (double quote)',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: \\'\\')\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(str)\\n',\n+            id='call with attr, empty string (single quote)',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: 0)\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(int)\\n',\n+            id='call with attr, int',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: 0.0)\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(float)\\n',\n+            id='call with attr, float',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: 0.0000)\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(float)\\n',\n+            id='call with attr, long float',\n+        ),\n+        pytest.param(\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(lambda: [], {1: []})\\n',\n+            'from collections import defaultdict\\n\\n'\n+            'defaultdict(list, {1: []})\\n',\n+            id='defauldict with kwargs',\n+        ),\n+        pytest.param(\n+            'import collections\\n\\n'\n+            'collections.defaultdict(lambda: set())\\n'\n+            'collections.defaultdict(lambda: list())\\n'\n+            'collections.defaultdict(lambda: dict())\\n'\n+            'collections.defaultdict(lambda: tuple())\\n'\n+            'collections.defaultdict(lambda: [])\\n'\n+            'collections.defaultdict(lambda: {})\\n'\n+            'collections.defaultdict(lambda: \"\")\\n'\n+            'collections.defaultdict(lambda: \\'\\')\\n'\n+            'collections.defaultdict(lambda: 0)\\n'\n+            'collections.defaultdict(lambda: 0.0)\\n'\n+            'collections.defaultdict(lambda: 0.00000)\\n'\n+            'collections.defaultdict(lambda: 0j)\\n',\n+            'import collections\\n\\n'\n+            'collections.defaultdict(set)\\n'\n+            'collections.defaultdict(list)\\n'\n+            'collections.defaultdict(dict)\\n'\n+            'collections.defaultdict(tuple)\\n'\n+            'collections.defaultdict(list)\\n'\n+            'collections.defaultdict(dict)\\n'\n+            'collections.defaultdict(str)\\n'\n+            'collections.defaultdict(str)\\n'\n+            'collections.defaultdict(int)\\n'\n+            'collections.defaultdict(float)\\n'\n+            'collections.defaultdict(float)\\n'\n+            'collections.defaultdict(complex)\\n',\n+            id='call with attr',\n+        ),\n+    ),\n+)\n+def test_fix_defaultdict(s, expected):\n+    ret = _fix_plugins(s, settings=Settings())\n+    assert ret == expected"
+  },
+  {
+    "issue": 892,
+    "issue_title": "`oserror-aliases` does not include `os.error`",
+    "pr": 893,
+    "pr_title": "also rewrite os.error -> OSError",
+    "merge_commit": "8fa06f448ef4fea316ab146c41f1a51c308ecac3",
+    "merged_at": "2023-09-21T20:00:56Z",
+    "link_strength": "strong",
+    "base_ref": "8fa06f448ef4fea316ab146c41f1a51c308ecac3^1",
+    "truth_src_files": [
+      "pyupgrade/_data.py",
+      "pyupgrade/_plugins/oserror_aliases.py"
+    ],
+    "truth_test_files": [],
+    "truth_churn": 3,
+    "truth_diff": "@@ -40,6 +40,7 @@ class State(NamedTuple):\n     '__future__',\n     'functools',\n     'mmap',\n+    'os',\n     'select',\n     'six',\n     'six.moves',\n@@ -17,7 +17,7 @@\n from pyupgrade._token_helpers import replace_name\n \n ERROR_NAMES = frozenset(('EnvironmentError', 'IOError', 'WindowsError'))\n-ERROR_MODULES = frozenset(('mmap', 'select', 'socket'))\n+ERROR_MODULES = frozenset(('mmap', 'select', 'socket', 'os'))\n \n \n def _fix_oserror_except("
+  },
+  {
+    "issue": 889,
+    "issue_title": "Error after upgrading a formatted sting starting with a variable",
+    "pr": 890,
+    "pr_title": "fix string formatting with named escape adjacent to placeholder",
+    "merge_commit": "ecaf736b283fd3543e1d23312cbe93301a553d8f",
+    "merged_at": "2023-09-19T18:00:01Z",
+    "link_strength": "strong",
+    "base_ref": "ecaf736b283fd3543e1d23312cbe93301a553d8f^1",
+    "truth_src_files": [
+      "pyupgrade/_string_helpers.py"
+    ],
+    "truth_test_files": [
+      "tests/features/format_literals_test.py"
+    ],
+    "truth_churn": 4,
+    "truth_diff": "@@ -19,7 +19,7 @@ def parse_format(s: str) -> list[DotFormatPart]:\n \n     for part in NAMED_UNICODE_RE.split(s):\n         if NAMED_UNICODE_RE.fullmatch(part):\n-            if not ret:\n+            if not ret or ret[-1][1:] != (None, None, None):\n                 ret.append((part, None, None, None))\n             else:\n                 ret[-1] = (ret[-1][0] + part, None, None, None)\n@@ -25,6 +25,8 @@\n         '(\"{0}\" # {1}\\n\"{2}\").format(1, 2, 3)',\n         # don't touch f-strings (these are wrong but don't make it worse)\n         'f\"{0}\".format(a)',\n+        # shouldn't touch the format spec\n+        r'\"{}\\N{SNOWMAN}\".format(\"\")',\n     ),\n )\n def test_format_literals_noop(s):"
+  },
+  {
+    "issue": 854,
+    "issue_title": "' '.join(shlex.quote(arg) for arg in cmd) => shelx.quote(cmd)",
+    "pr": 855,
+    "pr_title": "automatically rewrite to shlex.join in --py38-plus",
+    "merge_commit": "e7fc4db143d719a1ecaf4b1ca435fb7f11bcd39a",
+    "merged_at": "2023-07-03T17:20:07Z",
+    "link_strength": "strong",
+    "base_ref": "e7fc4db143d719a1ecaf4b1ca435fb7f11bcd39a^1",
+    "truth_src_files": [
+      "README.md",
+      "pyupgrade/_plugins/shlex_join.py"
+    ],
+    "truth_test_files": [
+      "tests/features/shlex_join_test.py"
+    ],
+    "truth_churn": 143,
+    "truth_diff": "@@ -634,6 +634,15 @@ Availability:\n      ...\n ```\n \n+### shlex.join\n+\n+Availability:\n+- `--py38-plus` is passed on the commandline.\n+\n+```diff\n+-' '.join(shlex.quote(arg) for arg in cmd)\n++shlex.join(cmd)\n+```\n \n ### replace `@functools.lru_cache(maxsize=None)` with shorthand\n \n@@ -0,0 +1,62 @@\n+from __future__ import annotations\n+\n+import ast\n+import functools\n+from typing import Iterable\n+\n+from tokenize_rt import NON_CODING_TOKENS\n+from tokenize_rt import Offset\n+from tokenize_rt import Token\n+\n+from pyupgrade._ast_helpers import ast_to_offset\n+from pyupgrade._data import register\n+from pyupgrade._data import State\n+from pyupgrade._data import TokenFunc\n+from pyupgrade._token_helpers import find_open_paren\n+from pyupgrade._token_helpers import find_token\n+from pyupgrade._token_helpers import victims\n+\n+\n+def _fix_shlex_join(i: int, tokens: list[Token], *, arg: ast.expr) -> None:\n+    j = find_open_paren(tokens, i)\n+    comp_victims = victims(tokens, j, arg, gen=True)\n+    k = find_token(tokens, comp_victims.arg_index, 'in') + 1\n+    while tokens[k].name in NON_CODING_TOKENS:\n+        k += 1\n+    tokens[comp_victims.ends[0]:comp_victims.ends[-1] + 1] = [Token('OP', ')')]\n+    tokens[i:k] = [Token('CODE', 'shlex.join'), Token('OP', '(')]\n+\n+\n+@register(ast.Call)\n+def visit_Call(\n+        state: State,\n+        node: ast.Call,\n+        parent: ast.AST,\n+) -> Iterable[tuple[Offset, TokenFunc]]:\n+    if state.settings.min_version < (3, 8):\n+        return\n+\n+    if (\n+            isinstance(node.func, ast.Attribute) and\n+            isinstance(node.func.value, ast.Constant) and\n+            isinstance(node.func.value.value, str) and\n+            node.func.attr == 'join' and\n+            not node.keywords and\n+            len(node.args) == 1 and\n+            isinstance(node.args[0], (ast.ListComp, ast.GeneratorExp)) and\n+            isinstance(node.args[0].elt, ast.Call) and\n+            isinstance(node.args[0].elt.func, ast.Attribute) and\n+            isinstance(node.args[0].elt.func.value, ast.Name) and\n+            node.args[0].elt.func.value.id == 'shlex' and\n+            node.args[0].elt.func.attr == 'quote' and\n+            not node.args[0].elt.keywords and\n+            len(node.args[0].elt.args) == 1 and\n+            isinstance(node.args[0].elt.args[0], ast.Name) and\n+            len(node.args[0].generators) == 1 and\n+            isinstance(node.args[0].generators[0].target, ast.Name) and\n+            not node.args[0].generators[0].ifs and\n+            not node.args[0].generators[0].is_async and\n+            node.args[0].elt.args[0].id == node.args[0].generators[0].target.id\n+    ):\n+        func = functools.partial(_fix_shlex_join, arg=node.args[0])\n+        yield ast_to_offset(node), func\n@@ -0,0 +1,72 @@\n+from __future__ import annotations\n+\n+import pytest\n+\n+from pyupgrade._data import Settings\n+from pyupgrade._main import _fix_plugins\n+\n+\n+@pytest.mark.parametrize(\n+    ('s', 'version'),\n+    (\n+        pytest.param(\n+            'from shlex import quote\\n'\n+            '\" \".join(quote(arg) for arg in cmd)\\n',\n+            (3, 8),\n+            id='quote from-imported',\n+        ),\n+        pytest.param(\n+            'import shlex\\n'\n+            '\" \".join(shlex.quote(arg) for arg in cmd)\\n',\n+            (3, 7),\n+            id='3.8+ feature',\n+        ),\n+    ),\n+)\n+def test_shlex_join_noop(s, version):\n+    assert _fix_plugins(s, settings=Settings(min_version=version)) == s\n+\n+\n+@pytest.mark.parametrize(\n+    ('s', 'expected'),\n+    (\n+        pytest.param(\n+            'import shlex\\n'\n+            '\" \".join(shlex.quote(arg) for arg in cmd)\\n',\n+\n+            'import shlex\\n'\n+            'shlex.join(cmd)\\n',\n+\n+            id='generator expression',\n+        ),\n+        pytest.param(\n+            'import shlex\\n'\n+            '\" \".join([shlex.quote(arg) for arg in cmd])\\n',\n+\n+            'import shlex\\n'\n+            'shlex.join(cmd)\\n',\n+\n+            id='list comprehension',\n+        ),\n+        pytest.param(\n+            'import shlex\\n'\n+            '\" \".join([shlex.quote(arg) for arg in cmd],)\\n',\n+\n+            'import shlex\\n'\n+            'shlex.join(cmd)\\n',\n+\n+            id='removes trailing comma',\n+        ),\n+        pytest.param(\n+            'import shlex\\n'\n+            '\" \".join([shlex.quote(arg) for arg in [\"a\", \"b\", \"c\"]],)\\n',\n+\n+            'import shlex\\n'\n+            'shlex.join([\"a\", \"b\", \"c\"])\\n',\n+\n+            id='more complicated iterable',\n+        ),\n+    ),\n+)\n+def test_shlex_join_fixes(s, expected):\n+    assert _fix_plugins(s, settings=Settings(min_version=(3, 8))) == expected"
+  },
+  {
+    "issue": 848,
+    "issue_title": "if (version check) + elif (version check) is not rewritten!",
+    "pr": 858,
+    "pr_title": "handle more flavors of versioned branches",
+    "merge_commit": "80648f7efc8ea94043f62be3ead5560d03c4e346",
+    "merged_at": "2023-07-03T18:50:54Z",
+    "link_strength": "strong",
+    "base_ref": "80648f7efc8ea94043f62be3ead5560d03c4e346^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/versioned_branches.py"
+    ],
+    "truth_test_files": [
+      "tests/features/versioned_branches_test.py"
+    ],
+    "truth_churn": 97,
+    "truth_diff": "@@ -45,6 +45,20 @@ def _fix_py2_block(i: int, tokens: list[Token]) -> None:\n         del tokens[if_block.start:else_block.start]\n \n \n+def _fix_remove_block(i: int, tokens: list[Token]) -> None:\n+    block = Block.find(tokens, i)\n+    del tokens[block.start:block.end]\n+\n+\n+def _fix_py2_convert_elif(i: int, tokens: list[Token]) -> None:\n+    if_block = Block.find(tokens, i)\n+    # wasn't actually followed by an `elif`\n+    if tokens[if_block.end].src != 'elif':\n+        return\n+    tokens[if_block.end] = Token('CODE', tokens[i].src)\n+    _fix_remove_block(i, tokens)\n+\n+\n def _fix_py3_block_else(i: int, tokens: list[Token]) -> None:\n     if tokens[i].src == 'if':\n         if_block, else_block = _find_if_else_block(tokens, i)\n@@ -57,9 +71,14 @@ def _fix_py3_block_else(i: int, tokens: list[Token]) -> None:\n         if_block.replace_condition(tokens, [Token('NAME', 'else')])\n \n \n-def _fix_remove_block(i: int, tokens: list[Token]) -> None:\n-    block = Block.find(tokens, i)\n-    del tokens[block.start:block.end]\n+def _fix_py3_convert_elif(i: int, tokens: list[Token]) -> None:\n+    if_block = Block.find(tokens, i)\n+    # wasn't actually followed by an `elif`\n+    if tokens[if_block.end].src != 'elif':\n+        return\n+    tokens[if_block.end] = Token('CODE', tokens[i].src)\n+    if_block.dedent(tokens)\n+    del tokens[if_block.start:if_block.block]\n \n \n def _eq(test: ast.Compare, n: int) -> bool:\n@@ -147,9 +166,11 @@ def visit_If(\n                 )\n             )\n     ):\n-        if node.orelse and not isinstance(node.orelse[0], ast.If):\n+        if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):\n+            yield ast_to_offset(node), _fix_py2_convert_elif\n+        elif node.orelse:\n             yield ast_to_offset(node), _fix_py2_block\n-        elif node.col_offset == 0 and not node.orelse:\n+        elif node.col_offset == 0:\n             yield ast_to_offset(node), _fix_remove_block\n     elif (\n             # if six.PY3:\n@@ -192,7 +213,9 @@ def visit_If(\n                 )\n             )\n     ):\n-        if node.orelse and not isinstance(node.orelse[0], ast.If):\n+        if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):\n+            yield ast_to_offset(node), _fix_py3_convert_elif\n+        elif node.orelse:\n             yield ast_to_offset(node), _fix_py3_block_else\n-        elif not node.orelse:\n+        else:\n             yield ast_to_offset(node), _fix_py3_block\n@@ -13,15 +13,22 @@\n         'if True:\\n'\n         '    if six.PY2:\\n'\n         '        pass\\n',\n-        # for now we don't attempt to rewrite `elif`\n-        'if six.PY2:\\n'\n-        '    pass\\n'\n-        'elif False:\\n'\n-        '    pass\\n',\n-        'if six.PY3:\\n'\n-        '    pass\\n'\n-        'elif False:\\n'\n-        '    pass\\n',\n+        pytest.param(\n+            'if six.PY2:\\n'\n+            '    2\\n'\n+            'else:\\n'\n+            '    if False:\\n'\n+            '        3\\n',\n+            id='py2 indistinguisable at ast level from `elif`',\n+        ),\n+        pytest.param(\n+            'if six.PY3:\\n'\n+            '    3\\n'\n+            'else:\\n'\n+            '    if False:\\n'\n+            '        2\\n',\n+            id='py3 indistinguisable at ast level from `elif`',\n+        ),\n         # don't rewrite version compares with not 3.0 compares\n         'if sys.version_info >= (3, 6):\\n'\n         '    3.6\\n'\n@@ -443,6 +450,27 @@ def test_fix_py2_block_noop(s):\n \n             id='comment after dedented block',\n         ),\n+        pytest.param(\n+            'print(\"before\")\\n'\n+            'if six.PY2:\\n'\n+            '    pass\\n'\n+            'print(\"after\")\\n',\n+\n+            'print(\"before\")\\n'\n+            'print(\"after\")\\n',\n+            id='can remove no-else if at module scope',\n+        ),\n+        pytest.param(\n+            'if six.PY2:\\n'\n+            '    pass\\n'\n+            'elif False:\\n'\n+            '    pass\\n',\n+\n+            'if False:\\n'\n+            '    pass\\n',\n+\n+            id='elif becomes if',\n+        ),\n     ),\n )\n def test_fix_py2_blocks(s, expected):\n@@ -568,14 +596,16 @@ def test_fix_py3_only_code(s, expected):\n             id='sys.version_info >= (3, 6), noelse',\n         ),\n         pytest.param(\n-            'print(\"before\")\\n'\n-            'if six.PY2:\\n'\n+            'if six.PY3:\\n'\n             '    pass\\n'\n-            'print(\"after\")\\n',\n+            'elif False:\\n'\n+            '    pass\\n',\n \n-            'print(\"before\")\\n'\n-            'print(\"after\")\\n',\n-            id='can remove no-else if at module scope',\n+            'pass\\n'\n+            'if False:\\n'\n+            '    pass\\n',\n+\n+            id='elif becomes if',\n         ),\n     ),\n )"
+  },
+  {
+    "issue": 817,
+    "issue_title": "Broken imports",
+    "pr": 818,
+    "pr_title": "fix import rewriting with aliases in multi-from",
+    "merge_commit": "66f78c859400c2b6b807b4629bcb7b3de2cf6820",
+    "merged_at": "2023-04-25T01:34:50Z",
+    "link_strength": "strong",
+    "base_ref": "66f78c859400c2b6b807b4629bcb7b3de2cf6820^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/imports.py"
+    ],
+    "truth_test_files": [
+      "tests/features/import_replaces_test.py"
+    ],
+    "truth_churn": 17,
+    "truth_diff": "@@ -281,6 +281,7 @@ class FromImport(NamedTuple):\n     mod_start: int\n     mod_end: int\n     names: tuple[int, ...]\n+    ends: tuple[int, ...]\n     end: int\n \n     @classmethod\n@@ -310,11 +311,14 @@ def parse(cls, i: int, tokens: list[Token]) -> FromImport:\n             for j in range(import_token + 1, end)\n             if tokens[j].name == 'NAME'\n         ]\n+        ends_by_offset = {}\n         for i in reversed(range(len(names))):\n             if tokens[names[i]].src == 'as':\n+                ends_by_offset[names[i - 1]] = names[i + 1]\n                 del names[i:i + 2]\n+        ends = tuple(ends_by_offset.get(pos, pos) for pos in names)\n \n-        return cls(start, mod_start, mod_end + 1, tuple(names), end)\n+        return cls(start, mod_start, mod_end + 1, tuple(names), ends, end)\n \n     def remove_self(self, tokens: list[Token]) -> None:\n         del tokens[self.start:self.end]\n@@ -327,10 +331,10 @@ def remove_parts(self, tokens: list[Token], idxs: list[int]) -> None:\n             if idx == 0:  # look forward until next name and del\n                 del tokens[self.names[idx]:self.names[idx + 1]]\n             else:  # look backward for comma and del\n-                j = end = self.names[idx]\n+                j = self.names[idx]\n                 while tokens[j].src != ',':\n                     j -= 1\n-                del tokens[j:end + 1]\n+                del tokens[j:self.ends[idx] + 1]\n \n \n def _alias_to_s(alias: ast.alias) -> str:\n@@ -305,6 +305,13 @@ def test_mock_noop_keep_mock():\n             'from collections.abc import Callable\\n',\n             id='typing.Callable is rewritable in 3.10+ only',\n         ),\n+        pytest.param(\n+            'from typing import Optional, Sequence as S\\n',\n+            (3, 10),\n+            'from typing import Optional\\n'\n+            'from collections.abc import Sequence as S\\n',\n+            id='aliasing in multi from import',\n+        ),\n     ),\n )\n def test_import_replaces(s, min_version, expected):"
+  },
+  {
+    "issue": 766,
+    "issue_title": "NotImplementedError on optional TypedDict union in functional definition",
+    "pr": 767,
+    "pr_title": "Add support for BinOr typing union syntax",
+    "merge_commit": "9969644894b1514d941e0c5914f08ec2a3c36416",
+    "merged_at": "2022-12-06T22:19:46Z",
+    "link_strength": "strong",
+    "base_ref": "9969644894b1514d941e0c5914f08ec2a3c36416^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/typing_classes.py"
+    ],
+    "truth_test_files": [
+      "tests/features/typing_classes_test.py"
+    ],
+    "truth_churn": 22,
+    "truth_diff": "@@ -46,6 +46,8 @@ def _unparse(node: ast.expr) -> str:\n         return '[{}]'.format(', '.join(_unparse(elt) for elt in node.elts))\n     elif isinstance(node, ast.NameConstant):\n         return repr(node.value)\n+    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):\n+        return f'{_unparse(node.left)} | {_unparse(node.right)}'\n     else:\n         raise NotImplementedError(ast.dump(node))\n \n@@ -210,6 +210,16 @@ def test_typing_named_tuple_noop(s):\n \n             id='preserves comments without alignment',\n         ),\n+        pytest.param(\n+            'from typing import NamedTuple\\n'\n+            'Foo = NamedTuple(\"Foo\", [(\"union\", str | None)])',\n+\n+            'from typing import NamedTuple\\n'\n+            'class Foo(NamedTuple):\\n'\n+            '    union: str | None',\n+\n+            id='BitOr unparse error',\n+        ),\n     ),\n )\n def test_fix_typing_named_tuple(s, expected):\n@@ -393,6 +403,16 @@ def test_typing_typed_dict_noop(s):\n \n             id='right after a dedent',\n         ),\n+        pytest.param(\n+            'from typing import TypedDict\\n'\n+            'Foo = TypedDict(\"Foo\", {\"union\": str | int | None})',\n+\n+            'from typing import TypedDict\\n'\n+            'class Foo(TypedDict):\\n'\n+            '    union: str | int | None',\n+\n+            id='BitOr unparse error',\n+        ),\n     ),\n )\n def test_typing_typed_dict(s, expected):"
+  },
+  {
+    "issue": 755,
+    "issue_title": "Plugin idea: Add 3.11 library conversion for UTC timezone",
+    "pr": 764,
+    "pr_title": "rewrite to datetime.UTC",
+    "merge_commit": "387936933d6c0ac89f615780fc96be6ded7ef9b0",
+    "merged_at": "2022-12-02T18:20:06Z",
+    "link_strength": "strong",
+    "base_ref": "387936933d6c0ac89f615780fc96be6ded7ef9b0^1",
+    "truth_src_files": [
+      "README.md",
+      "pyupgrade/_plugins/datetime_utc_alias.py"
+    ],
+    "truth_test_files": [
+      "tests/features/datetime_utc_alias_test.py"
+    ],
+    "truth_churn": 89,
+    "truth_diff": "@@ -694,3 +694,16 @@ Availability:\n -def f(x: 'queue.Queue[int]') -> C:\n +def f(x: queue.Queue[int]) -> C:\n ```\n+\n+\n+### use `datetime.UTC` alias\n+\n+Availability:\n+- `--py311-plus` is passed on the commandline.\n+\n+```diff\n+ import datetime\n+\n+-datetime.timezone.utc\n++datetime.UTC\n+```\n@@ -0,0 +1,35 @@\n+from __future__ import annotations\n+\n+import ast\n+import functools\n+from typing import Iterable\n+\n+from tokenize_rt import Offset\n+\n+from pyupgrade._ast_helpers import ast_to_offset\n+from pyupgrade._data import register\n+from pyupgrade._data import State\n+from pyupgrade._data import TokenFunc\n+from pyupgrade._token_helpers import replace_name\n+\n+\n+@register(ast.Attribute)\n+def visit_Attribute(\n+        state: State,\n+        node: ast.Attribute,\n+        parent: ast.AST,\n+) -> Iterable[tuple[Offset, TokenFunc]]:\n+    if (\n+            state.settings.min_version >= (3, 11) and\n+            node.attr == 'utc' and\n+            isinstance(node.value, ast.Attribute) and\n+            node.value.attr == 'timezone' and\n+            isinstance(node.value.value, ast.Name) and\n+            node.value.value.id == 'datetime'\n+    ):\n+        func = functools.partial(\n+            replace_name,\n+            name='utc',\n+            new='datetime.UTC',\n+        )\n+        yield ast_to_offset(node), func\n@@ -0,0 +1,41 @@\n+from __future__ import annotations\n+\n+import pytest\n+\n+from pyupgrade._data import Settings\n+from pyupgrade._main import _fix_plugins\n+\n+\n+@pytest.mark.parametrize(\n+    ('s',),\n+    (\n+        pytest.param(\n+            'import datetime\\n'\n+            'print(datetime.timezone(-1))',\n+\n+            id='not rewriting timezone object to alias',\n+        ),\n+    ),\n+)\n+def test_fix_datetime_utc_alias_noop(s):\n+    assert _fix_plugins(s, settings=Settings(min_version=(3,))) == s\n+    assert _fix_plugins(s, settings=Settings(min_version=(3, 11))) == s\n+\n+\n+@pytest.mark.parametrize(\n+    ('s', 'expected'),\n+    (\n+        pytest.param(\n+            'import datetime\\n'\n+            'print(datetime.timezone.utc)',\n+\n+            'import datetime\\n'\n+            'print(datetime.UTC)',\n+\n+            id='rewriting to alias',\n+        ),\n+    ),\n+)\n+def test_fix_datetime_utc_alias(s, expected):\n+    assert _fix_plugins(s, settings=Settings(min_version=(3,))) == s\n+    assert _fix_plugins(s, settings=Settings(min_version=(3, 11))) == expected"
+  },
+  {
+    "issue": 749,
+    "issue_title": "unittest.makeSuite() with prefix incorrectly rewritten",
+    "pr": 891,
+    "pr_title": "fix bug when rewriting deprecated unittest functions",
+    "merge_commit": "443797a8b190d1f7d0409a2c911257567d6e02ff",
+    "merged_at": "2023-09-21T15:17:01Z",
+    "link_strength": "strong",
+    "base_ref": "443797a8b190d1f7d0409a2c911257567d6e02ff^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/unittest_aliases.py"
+    ],
+    "truth_test_files": [
+      "tests/features/unittest_aliases_test.py"
+    ],
+    "truth_churn": 10,
+    "truth_diff": "@@ -7,6 +7,7 @@\n from tokenize_rt import Offset\n \n from pyupgrade._ast_helpers import ast_to_offset\n+from pyupgrade._ast_helpers import has_starargs\n from pyupgrade._data import register\n from pyupgrade._data import State\n from pyupgrade._data import TokenFunc\n@@ -59,7 +60,10 @@ def visit_Call(\n             isinstance(node.func, ast.Attribute) and\n             isinstance(node.func.value, ast.Name) and\n             node.func.value.id == 'unittest' and\n-            node.func.attr in FUNCTION_MAPPING\n+            node.func.attr in FUNCTION_MAPPING and\n+            not has_starargs(node) and\n+            not node.keywords and\n+            len(node.args) == 1\n     ):\n         func = functools.partial(\n             replace_name,\n@@ -7,14 +7,16 @@\n \n \n @pytest.mark.parametrize(\n-    ('s',),\n+    's',\n     (\n         pytest.param(\n             'class ExampleTests:\\n'\n             '    def test_something(self):\\n'\n             '        self.assertEqual(1, 1)\\n',\n             id='not a deprecated alias',\n         ),\n+        'unittest.makeSuite(Tests, \"arg\")',\n+        'unittest.makeSuite(Tests, prefix=\"arg\")',\n     ),\n )\n def test_fix_unittest_aliases_noop(s):"
+  },
+  {
+    "issue": 744,
+    "issue_title": "--py311-plus: G[Unpack[T]] => G[*T]",
+    "pr": 745,
+    "pr_title": "Add PEP646 Unpack plugin",
+    "merge_commit": "1268511b2d0eb7e41618365e9344e2e6ff5fdeb2",
+    "merged_at": "2022-10-29T21:50:38Z",
+    "link_strength": "strong",
+    "base_ref": "1268511b2d0eb7e41618365e9344e2e6ff5fdeb2^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/typing_pep646_unpack.py"
+    ],
+    "truth_test_files": [
+      "tests/features/typing_pep646_unpack_test.py"
+    ],
+    "truth_churn": 99,
+    "truth_diff": "@@ -0,0 +1,39 @@\n+from __future__ import annotations\n+\n+import ast\n+from typing import Iterable\n+\n+from tokenize_rt import Offset\n+from tokenize_rt import Token\n+\n+from pyupgrade._ast_helpers import ast_to_offset\n+from pyupgrade._ast_helpers import is_name_attr\n+from pyupgrade._data import register\n+from pyupgrade._data import State\n+from pyupgrade._data import TokenFunc\n+from pyupgrade._token_helpers import find_closing_bracket\n+from pyupgrade._token_helpers import find_token\n+from pyupgrade._token_helpers import remove_brace\n+\n+\n+def _replace_unpack_with_star(i: int, tokens: list[Token]) -> None:\n+    start = find_token(tokens, i, '[')\n+    end = find_closing_bracket(tokens, start)\n+\n+    remove_brace(tokens, end)\n+    # replace `Unpack` with `*`\n+    tokens[i:start + 1] = [tokens[i]._replace(name='OP', src='*')]\n+\n+\n+@register(ast.Subscript)\n+def visit_Subscript(\n+    state: State,\n+    node: ast.Subscript,\n+    parent: ast.AST,\n+) -> Iterable[tuple[Offset, TokenFunc]]:\n+    if state.settings.min_version < (3, 11):\n+        return\n+\n+    if is_name_attr(node.value, state.from_imports, ('typing',), ('Unpack',)):\n+        if isinstance(parent, (ast.Subscript, ast.Index)):\n+            yield ast_to_offset(node.value), _replace_unpack_with_star\n@@ -0,0 +1,60 @@\n+from __future__ import annotations\n+\n+import pytest\n+\n+from pyupgrade._data import Settings\n+from pyupgrade._main import _fix_plugins\n+\n+\n+@pytest.mark.parametrize(\n+    ('s',),\n+    (\n+        pytest.param(\n+            'from typing import Unpack\\n'\n+            'foo(Unpack())',\n+            id='Not a subscript',\n+        ),\n+        pytest.param(\n+            'from typing import TypeVarTuple, Unpack\\n'\n+            'Shape = TypeVarTuple(\"Shape\")\\n'\n+            'class Foo(Unpack[Shape]):\\n'\n+            '    pass',\n+            id='Not inside a subscript',\n+        ),\n+    ),\n+)\n+def test_fix_pep646_noop(s):\n+    assert _fix_plugins(s, settings=Settings(min_version=(3, 11))) == s\n+    assert _fix_plugins(s, settings=Settings(min_version=(3, 10))) == s\n+\n+\n+@pytest.mark.parametrize(\n+    ('s', 'expected'),\n+    (\n+        (\n+            'from typing import Generic, TypeVarTuple, Unpack\\n'\n+            \"Shape = TypeVarTuple('Shape')\\n\"\n+            'class C(Generic[Unpack[Shape]]):\\n'\n+            '    pass',\n+\n+            'from typing import Generic, TypeVarTuple, Unpack\\n'\n+            \"Shape = TypeVarTuple('Shape')\\n\"\n+            'class C(Generic[*Shape]):\\n'\n+            '    pass',\n+        ),\n+        (\n+            'from typing import Generic, TypeVarTuple, Unpack\\n'\n+            \"Shape = TypeVarTuple('Shape')\\n\"\n+            'class C(Generic[Unpack  [Shape]]):\\n'\n+            '    pass',\n+\n+            'from typing import Generic, TypeVarTuple, Unpack\\n'\n+            \"Shape = TypeVarTuple('Shape')\\n\"\n+            'class C(Generic[*Shape]):\\n'\n+            '    pass',\n+        ),\n+    ),\n+)\n+def test_typing_unpack(s, expected):\n+    assert _fix_plugins(s, settings=Settings(min_version=(3, 11))) == expected\n+    assert _fix_plugins(s, settings=Settings(min_version=(3, 10))) == s"
+  },
+  {
+    "issue": 704,
+    "issue_title": "pyupgrade optimization issue: tuple + list comprehension",
+    "pr": 705,
+    "pr_title": "remove pep289 rewrite",
+    "merge_commit": "443bc1edeaa3b28feee9937495e9d13e1f5f3a6d",
+    "merged_at": "2022-09-12T14:13:30Z",
+    "link_strength": "strong",
+    "base_ref": "443bc1edeaa3b28feee9937495e9d13e1f5f3a6d^1",
+    "truth_src_files": [
+      "README.md",
+      "pyupgrade/_plugins/generator_expressions_pep289.py",
+      "pyupgrade/_token_helpers.py"
+    ],
+    "truth_test_files": [
+      "tests/features/generator_expressions_pep289_test.py"
+    ],
+    "truth_churn": 202,
+    "truth_diff": "@@ -58,19 +58,6 @@ Sample `.pre-commit-config.yaml`:\n ```\n \n \n-### Generator expressions for some built-in functions (pep 289)\n-\n-```diff\n--min([i for i in range(3)])\n-+min(i for i in range(3))\n--max([i for i in range(3)])\n-+max(i for i in range(3))\n--sum([i for i in range(3)])\n-+sum(i for i in range(3))\n--''.join([str(i) for i in range(3)])\n-+''.join(str(i) for i in range(3))\n-```\n-\n ### Python2.7+ Format Specifiers\n \n ```diff\n@@ -1,61 +0,0 @@\n-from __future__ import annotations\n-\n-import ast\n-from typing import Iterable\n-\n-from tokenize_rt import NON_CODING_TOKENS\n-from tokenize_rt import Offset\n-from tokenize_rt import Token\n-\n-from pyupgrade._ast_helpers import ast_to_offset\n-from pyupgrade._ast_helpers import is_async_listcomp\n-from pyupgrade._data import register\n-from pyupgrade._data import State\n-from pyupgrade._data import TokenFunc\n-from pyupgrade._token_helpers import find_closing_bracket\n-from pyupgrade._token_helpers import find_comprehension_opening_bracket\n-from pyupgrade._token_helpers import replace_list_comp_brackets\n-\n-\n-ALLOWED_FUNCS = frozenset((\n-    'bytearray',\n-    'bytes',\n-    'frozenset',\n-    'list',\n-    'max',\n-    'min',\n-    'sorted',\n-    'sum',\n-    'tuple',\n-))\n-\n-\n-def _delete_list_comp_brackets(i: int, tokens: list[Token]) -> None:\n-    start = find_comprehension_opening_bracket(i, tokens)\n-    end = find_closing_bracket(tokens, start)\n-    tokens[end] = Token('PLACEHOLDER', '')\n-    tokens[start] = Token('PLACEHOLDER', '')\n-    j = end + 1\n-    while j < len(tokens) and tokens[j].name in NON_CODING_TOKENS:\n-        j += 1\n-    if tokens[j].name == 'OP' and tokens[j].src == ',':\n-        tokens[j] = Token('PLACEHOLDER', '')\n-\n-\n-@register(ast.Call)\n-def visit_Call(\n-        state: State,\n-        node: ast.Call,\n-        parent: ast.AST,\n-) -> Iterable[tuple[Offset, TokenFunc]]:\n-    if (\n-            isinstance(node.func, ast.Name) and\n-            node.func.id in ALLOWED_FUNCS and\n-            node.args and\n-            isinstance(node.args[0], ast.ListComp) and\n-            not is_async_listcomp(node.args[0])\n-    ):\n-        if len(node.args) == 1 and not node.keywords:\n-            yield ast_to_offset(node.args[0]), _delete_list_comp_brackets\n-        else:\n-            yield ast_to_offset(node.args[0]), replace_list_comp_brackets\n@@ -510,13 +510,6 @@ def find_comprehension_opening_bracket(i: int, tokens: list[Token]) -> int:\n         return i\n \n \n-def replace_list_comp_brackets(i: int, tokens: list[Token]) -> None:\n-    start = find_comprehension_opening_bracket(i, tokens)\n-    end = find_closing_bracket(tokens, start)\n-    tokens[end] = Token('OP', ')')\n-    tokens[start] = Token('OP', '(')\n-\n-\n def has_space_before(i: int, tokens: list[Token]) -> bool:\n     return i >= 1 and tokens[i - 1].name in {UNIMPORTANT_WS, 'INDENT'}\n \n@@ -1,121 +0,0 @@\n-from __future__ import annotations\n-\n-import pytest\n-\n-from pyupgrade._data import Settings\n-from pyupgrade._main import _fix_plugins\n-\n-\n-@pytest.mark.parametrize(\n-    ('s',),\n-    (\n-        pytest.param(\n-            'sum((i for i in range(3)))',\n-            id='Parenthesised generator expression',\n-        ),\n-        pytest.param(\n-            'len([i for i in range(2)])',\n-            id='Non-supported function',\n-        ),\n-        pytest.param('frozenset()', id='no arguments'),\n-        pytest.param(\n-            '\"\".join([[i for _ in range(2)] for i in range(3)])\\n',\n-            id='string join (left alone for perf reasons)',\n-        ),\n-        pytest.param(\n-            'async def foo():\\n'\n-            '    for i in range(3):\\n'\n-            '        yield i\\n'\n-            'async def bar():\\n'\n-            '    sum([i async for i in foo()])\\n',\n-            id='Contains async',\n-        ),\n-        pytest.param(\n-            'tuple([\\n'\n-            '    await self._configure_component(hass, controller_config)\\n'\n-            '    for controller_config in configs\\n'\n-            '])\\n',\n-            id='Contains await',\n-        ),\n-    ),\n-)\n-def test_fix_generator_expressions_noop(s):\n-    assert _fix_plugins(s, settings=Settings()) == s\n-\n-\n-@pytest.mark.parametrize(\n-    ('s', 'expected'),\n-    (\n-        pytest.param(\n-            'sum([i for i in range(3)])\\n',\n-\n-            'sum(i for i in range(3))\\n',\n-\n-            id='Single line, list comprehension\\n',\n-        ),\n-        pytest.param(\n-            'sum([i for i in range(2)], 2)',\n-\n-            'sum((i for i in range(2)), 2)',\n-\n-            id='List comprehension plus posarg',\n-        ),\n-        pytest.param(\n-            'sum([i for i in range(2)], x=2)',\n-\n-            'sum((i for i in range(2)), x=2)',\n-\n-            id='List comprehension plus kwarg',\n-        ),\n-        pytest.param(\n-            'sum(([i for i in range(3)]))\\n',\n-\n-            'sum((i for i in range(3)))\\n',\n-\n-            id='Parenthesised list comprehension\\n',\n-        ),\n-        pytest.param(\n-            'sum(\\n'\n-            '    [i for i in range(3)]\\n'\n-            ')\\n',\n-\n-            'sum(\\n'\n-            '    i for i in range(3)\\n'\n-            ')\\n',\n-\n-            id='Multiline list comprehension\\n',\n-        ),\n-        pytest.param(\n-            'sum([[i for _ in range(2)] for i in range(3)])\\n',\n-\n-            'sum([i for _ in range(2)] for i in range(3))\\n',\n-\n-            id='Nested list comprehension\\n',\n-        ),\n-        pytest.param(\n-            'sum([[i for _ in range(2)] for i in range(3)],)\\n',\n-\n-            'sum([i for _ in range(2)] for i in range(3))\\n',\n-\n-            id='Trailing comma after list comprehension',\n-        ),\n-        pytest.param(\n-            'sum(\\n'\n-            '    [\\n'\n-            '        i for i in range(3)\\n'\n-            '    ],\\n'\n-            ')\\n',\n-\n-            'sum(\\n'\n-            '    \\n'\n-            '        i for i in range(3)\\n'\n-            '    \\n'\n-            ')\\n',\n-\n-            id='Multiline list comprehension with trailing comma\\n',\n-        ),\n-    ),\n-)\n-def test_fix_generator_expressions(s, expected):\n-    ret = _fix_plugins(s, settings=Settings())\n-    assert ret == expected"
+  },
+  {
+    "issue": 696,
+    "issue_title": "super() calls in nested classes aren't updated",
+    "pr": 707,
+    "pr_title": "Rewrite 2-arg super call in nested class",
+    "merge_commit": "a41a73394c6141fcc40e45473dfa39899edfbd94",
+    "merged_at": "2022-09-26T02:07:09Z",
+    "link_strength": "strong",
+    "base_ref": "a41a73394c6141fcc40e45473dfa39899edfbd94^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/legacy.py"
+    ],
+    "truth_test_files": [
+      "tests/features/super_test.py"
+    ],
+    "truth_churn": 72,
+    "truth_diff": "@@ -131,19 +131,42 @@ def visit_Call(self, node: ast.Call) -> None:\n                 isinstance(node.func, ast.Name) and\n                 node.func.id == 'super' and\n                 len(node.args) == 2 and\n-                isinstance(node.args[0], ast.Name) and\n                 isinstance(node.args[1], ast.Name) and\n                 # there are at least two scopes\n                 len(self._scopes) >= 2 and\n-                # the second to last scope is the class in arg1\n-                isinstance(self._scopes[-2].node, ast.ClassDef) and\n-                node.args[0].id == self._scopes[-2].node.name and\n                 # the last scope is a function where the first arg is arg2\n                 isinstance(self._scopes[-1].node, FUNC_TYPES) and\n                 self._scopes[-1].node.args.args and\n                 node.args[1].id == self._scopes[-1].node.args.args[0].arg\n         ):\n-            self.super_offsets.add(ast_to_offset(node))\n+            args = node.args[0]\n+            scope = len(self._scopes) - 2\n+            current_scope = self._scopes[scope]\n+            # if in nested classes, all names in arg1 must match the scopes\n+            while (\n+                    isinstance(args, ast.Attribute) and\n+                    scope > 0 and\n+                    isinstance(current_scope.node, ast.ClassDef) and\n+                    args.attr == current_scope.node.name\n+            ):\n+                args = args.value\n+                scope -= 1\n+                current_scope = self._scopes[scope]\n+            # now check if it is outer most class and its name match\n+            if (\n+                    isinstance(args, ast.Name) and\n+                    isinstance(current_scope.node, ast.ClassDef) and\n+                    args.id == current_scope.node.name and\n+                    # an enclosing scope cannot be a class\n+                    (\n+                        scope == 0 or\n+                        not isinstance(\n+                            self._scopes[scope - 1].node,\n+                            ast.ClassDef,\n+                        )\n+                    )\n+            ):\n+                self.super_offsets.add(ast_to_offset(node))\n \n         self.generic_visit(node)\n \n@@ -20,6 +20,19 @@\n         'class C(Base):\\n'\n         '    def f(self):\\n'\n         '        super(Base, self).f()\\n',\n+        'class Outer:\\n'  # common nesting\n+        '    class C(Base):\\n'\n+        '        def f(self):\\n'\n+        '            super(C, self).f()\\n',\n+        'class Outer:\\n'  # higher levels of nesting\n+        '    class Inner:\\n'\n+        '        class C(Base):\\n'\n+        '            def f(self):\\n'\n+        '                super(Inner.C, self).f()\\n',\n+        'class Outer:\\n'  # super arg1 nested in unrelated name\n+        '    class C(Base):\\n'\n+        '        def f(self):\\n'\n+        '            super(some_module.Outer.C, self).f()\\n',\n \n         # super outside of a class (technically legal!)\n         'def f(self):\\n'\n@@ -87,12 +100,36 @@ def test_fix_super_noop(s):\n             'class Outer:\\n'\n             '    class C(Base):\\n'\n             '        def f(self):\\n'\n-            '            super (C, self).f()\\n',\n+            '            super (Outer.C, self).f()\\n',\n             'class Outer:\\n'\n             '    class C(Base):\\n'\n             '        def f(self):\\n'\n             '            super().f()\\n',\n         ),\n+        (\n+            'def f():\\n'\n+            '    class Outer:\\n'\n+            '        class C(Base):\\n'\n+            '            def f(self):\\n'\n+            '                super(Outer.C, self).f()\\n',\n+            'def f():\\n'\n+            '    class Outer:\\n'\n+            '        class C(Base):\\n'\n+            '            def f(self):\\n'\n+            '                super().f()\\n',\n+        ),\n+        (\n+            'class A:\\n'\n+            '    class B:\\n'\n+            '        class C:\\n'\n+            '            def f(self):\\n'\n+            '                super(A.B.C, self).f()\\n',\n+            'class A:\\n'\n+            '    class B:\\n'\n+            '        class C:\\n'\n+            '            def f(self):\\n'\n+            '                super().f()\\n',\n+        ),\n         (\n             'class C(Base):\\n'\n             '    f = lambda self: super(C, self).f()\\n',"
+  },
+  {
+    "issue": 678,
+    "issue_title": "Bad import rewrite since v2.35.0",
+    "pr": 680,
+    "pr_title": "fix replacement of entire indented import",
+    "merge_commit": "7b372d1b50ad4aceac86c52adfb8cf55b84fb842",
+    "merged_at": "2022-07-11T12:24:22Z",
+    "link_strength": "strong",
+    "base_ref": "7b372d1b50ad4aceac86c52adfb8cf55b84fb842^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/imports.py",
+      "pyupgrade/_token_helpers.py"
+    ],
+    "truth_test_files": [
+      "tests/features/import_replaces_test.py"
+    ],
+    "truth_churn": 44,
+    "truth_diff": "@@ -17,6 +17,7 @@\n from pyupgrade._data import TokenFunc\n from pyupgrade._token_helpers import find_end\n from pyupgrade._token_helpers import find_token\n+from pyupgrade._token_helpers import has_space_before\n from pyupgrade._token_helpers import indented_amount\n \n # GENERATED VIA generate-imports\n@@ -259,13 +260,19 @@ def _remove_import(i: int, tokens: list[Token]) -> None:\n \n \n class FromImport(NamedTuple):\n+    start: int\n     mod_start: int\n     mod_end: int\n     names: tuple[int, ...]\n     end: int\n \n     @classmethod\n     def parse(cls, i: int, tokens: list[Token]) -> FromImport:\n+        if has_space_before(i, tokens):\n+            start = i - 1\n+        else:\n+            start = i\n+\n         j = i + 1\n         # XXX: does not handle explicit relative imports\n         while tokens[j].name != 'NAME':\n@@ -290,7 +297,10 @@ def parse(cls, i: int, tokens: list[Token]) -> FromImport:\n             if tokens[names[i]].src == 'as':\n                 del names[i:i + 2]\n \n-        return cls(mod_start, mod_end + 1, tuple(names), end)\n+        return cls(start, mod_start, mod_end + 1, tuple(names), end)\n+\n+    def remove_self(self, tokens: list[Token]) -> None:\n+        del tokens[self.start:self.end]\n \n     def replace_modname(self, tokens: list[Token], modname: str) -> None:\n         tokens[self.mod_start:self.mod_end] = [Token('CODE', modname)]\n@@ -365,7 +375,7 @@ def _replace_from_mixed(\n \n     # all names rewritten -- delete import\n     if len(parsed.names) == len(removal_idxs):\n-        del tokens[i:parsed.end]\n+        parsed.remove_self(tokens)\n     else:\n         parsed.remove_parts(tokens, removal_idxs)\n \n@@ -443,6 +453,10 @@ def _replace_import(\n     except ValueError:\n         return\n \n+    if has_space_before(i, tokens):\n+        start = i - 1\n+    else:\n+        start = i\n     end = find_end(tokens, i)\n \n     parts = []\n@@ -478,7 +492,7 @@ def _replace_import(\n     tokens[end:end] = [Token('CODE', ''.join(new_imports))]\n \n     if len(to_from) == len(parts):\n-        del tokens[i:end]\n+        del tokens[start:end]\n     else:\n         for idx, _, _, _ in reversed(to_from):\n             if idx == 0:  # look forward until next name and del\n@@ -517,11 +517,15 @@ def replace_list_comp_brackets(i: int, tokens: list[Token]) -> None:\n     tokens[start] = Token('OP', '(')\n \n \n+def has_space_before(i: int, tokens: list[Token]) -> bool:\n+    return i >= 1 and tokens[i - 1].name in {UNIMPORTANT_WS, 'INDENT'}\n+\n+\n def indented_amount(i: int, tokens: list[Token]) -> str:\n     if i == 0:\n         return ''\n-    elif i >= 2 and tokens[i - 1].name in {UNIMPORTANT_WS, 'INDENT'}:\n-        if tokens[i - 2].name in {'NL', 'NEWLINE', 'DEDENT'}:\n+    elif has_space_before(i, tokens):\n+        if i >= 2 and tokens[i - 2].name in {'NL', 'NEWLINE', 'DEDENT'}:\n             return tokens[i - 1].src\n         else:  # inline import\n             raise ValueError('not at beginning of line')\n@@ -134,6 +134,14 @@ def test_mock_noop_keep_mock():\n             'from collections.abc import Mapping as mapping\\n',\n             id='new import with aliased name',\n         ),\n+        pytest.param(\n+            'if True:\\n'\n+            '    from xml.etree import cElementTree as ET\\n',\n+            (3,),\n+            'if True:\\n'\n+            '    from xml.etree import ElementTree as ET\\n',\n+            id='indented and full import replaced',\n+        ),\n         pytest.param(\n             'if True:\\n'\n             '    from collections import Mapping, Counter\\n',\n@@ -152,6 +160,14 @@ def test_mock_noop_keep_mock():\n             '    import queue\\n',\n             id='indented import-import being added',\n         ),\n+        pytest.param(\n+            'if True:\\n'\n+            '    import mock\\n',\n+            (3,),\n+            'if True:\\n'\n+            '    from unittest import mock\\n',\n+            id='indented import-import rewritten',\n+        ),\n         pytest.param(\n             'if True:\\n'\n             '    if True:\\n'"
+  },
+  {
+    "issue": 677,
+    "issue_title": "collections.abc.Callable inside Option/Union broken in 3.9.0/3.9.1",
+    "pr": 679,
+    "pr_title": "only rewrite typing.Callable in 3.10+",
+    "merge_commit": "6ef17c3cf50d31adaea7b2f01aeae2783aa78619",
+    "merged_at": "2022-07-11T12:20:23Z",
+    "link_strength": "strong",
+    "base_ref": "6ef17c3cf50d31adaea7b2f01aeae2783aa78619^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/imports.py"
+    ],
+    "truth_test_files": [
+      "tests/features/import_replaces_test.py"
+    ],
+    "truth_churn": 15,
+    "truth_diff": "@@ -20,7 +20,7 @@\n from pyupgrade._token_helpers import indented_amount\n \n # GENERATED VIA generate-imports\n-# Using reorder-python-imports==3.8.0\n+# Using reorder-python-imports==3.8.1\n REMOVALS = {\n     (2, 7): {'__future__': {'generators', 'nested_scopes', 'with_statement'}},\n     (3,): {\n@@ -130,7 +130,6 @@\n         ('typing', 'AsyncIterator'): 'collections.abc',\n         ('typing', 'Awaitable'): 'collections.abc',\n         ('typing', 'ByteString'): 'collections.abc',\n-        ('typing', 'Callable'): 'collections.abc',\n         ('typing', 'ChainMap'): 'collections',\n         ('typing', 'Collection'): 'collections.abc',\n         ('typing', 'Container'): 'collections.abc',\n@@ -159,6 +158,7 @@\n         ('typing_extensions', 'Annotated'): 'typing',\n     },\n     (3, 10): {\n+        ('typing', 'Callable'): 'collections.abc',\n         ('typing_extensions', 'Concatenate'): 'typing',\n         ('typing_extensions', 'ParamSpec'): 'typing',\n         ('typing_extensions', 'TypeAlias'): 'typing',\n@@ -45,6 +45,11 @@\n             (3,),\n             id='from import of module without alias',\n         ),\n+        pytest.param(\n+            'from typing import Callable\\n',\n+            (3, 9),\n+            id='skip rewriting of Callable in 3.9 since it is broken',\n+        ),\n     ),\n )\n def test_import_replaces_noop(s, min_version):\n@@ -283,6 +288,12 @@ def test_mock_noop_keep_mock():\n             'from unittest import mock\\n',\n             id='mock import mock import',\n         ),\n+        pytest.param(\n+            'from typing import Callable\\n',\n+            (3, 10),\n+            'from collections.abc import Callable\\n',\n+            id='typing.Callable is rewritable in 3.10+ only',\n+        ),\n     ),\n )\n def test_import_replaces(s, min_version, expected):"
+  },
+  {
+    "issue": 649,
+    "issue_title": "rewrite bytes(b'foo') -> b'foo'",
+    "pr": 650,
+    "pr_title": "rewrite bytes(b'foo') to b'foo'",
+    "merge_commit": "f028b3da9930997f8f61169dc10b96f5dde2c8ba",
+    "merged_at": "2022-06-06T23:28:10Z",
+    "link_strength": "strong",
+    "base_ref": "f028b3da9930997f8f61169dc10b96f5dde2c8ba^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/native_literals.py",
+      "pyupgrade/_token_helpers.py"
+    ],
+    "truth_test_files": [
+      "tests/features/native_literals_test.py"
+    ],
+    "truth_churn": 29,
+    "truth_diff": "@@ -1,6 +1,7 @@\n from __future__ import annotations\n \n import ast\n+import functools\n from typing import Iterable\n \n from tokenize_rt import Offset\n@@ -19,15 +20,15 @@\n SIX_NATIVE_STR = frozenset(('ensure_str', 'ensure_text', 'text_type'))\n \n \n-def _fix_native_str(i: int, tokens: list[Token]) -> None:\n+def _fix_literal(i: int, tokens: list[Token], *, empty: str) -> None:\n     j = find_open_paren(tokens, i)\n     func_args, end = parse_call_args(tokens, j)\n     if any(tok.name == 'NL' for tok in tokens[i:end]):\n         return\n     if func_args:\n         replace_call(tokens, i, end, func_args, '{args[0]}')\n     else:\n-        tokens[i:end] = [tokens[i]._replace(name='STRING', src=\"''\")]\n+        tokens[i:end] = [tokens[i]._replace(name='STRING', src=empty)]\n \n \n def is_a_native_literal_call(\n@@ -58,4 +59,16 @@ def visit_Call(\n             state.settings.min_version >= (3,) and\n             is_a_native_literal_call(node, state.from_imports)\n     ):\n-        yield ast_to_offset(node), _fix_native_str\n+        func = functools.partial(_fix_literal, empty=\"''\")\n+        yield ast_to_offset(node), func\n+    elif (\n+            state.settings.min_version >= (3,) and\n+            isinstance(node.func, ast.Name) and node.func.id == 'bytes' and\n+            not node.keywords and not has_starargs(node) and\n+            (\n+                len(node.args) == 0 or\n+                (len(node.args) == 1 and isinstance(node.args[0], ast.Bytes))\n+            )\n+    ):\n+        func = functools.partial(_fix_literal, empty=\"b''\")\n+        yield ast_to_offset(node), func\n@@ -420,7 +420,7 @@ def replace_call(\n \n     # there are a few edge cases which cause syntax errors when the first\n     # argument contains newlines (especially when moved outside of a natural\n-    # contiunuation context)\n+    # continuation context)\n     if _arg_contains_newline(tokens, *args[0]) and 0 not in parens:\n         # this attempts to preserve more of the whitespace by using the\n         # original non-stripped argument string\n@@ -14,6 +14,11 @@\n         'str(*a)', 'str(\"foo\", *a)',\n         'str(**k)', 'str(\"foo\", **k)',\n         'str(\"foo\", encoding=\"UTF-8\")',\n+        'bytes(\"foo\", encoding=\"UTF-8\")',\n+        'bytes(b\"foo\"\\nb\"bar\")',\n+        'bytes(\"foo\"\\n\"bar\")',\n+        'bytes(*a)', 'bytes(\"foo\", *a)',\n+        'bytes(\"foo\", **a)',\n     ),\n )\n def test_fix_native_literals_noop(s):\n@@ -38,6 +43,9 @@ def test_fix_native_literals_noop(s):\n \n             id='from import of rewritten name',\n         ),\n+        ('bytes()', \"b''\"),\n+        ('bytes(b\"foo\")', 'b\"foo\"'),\n+        ('bytes(b\"\"\"\\nfoo\"\"\")', 'b\"\"\"\\nfoo\"\"\"'),\n     ),\n )\n def test_fix_native_literals(s, expected):"
+  },
+  {
+    "issue": 637,
+    "issue_title": "`--py311-plus` should not unquote annotations",
+    "pr": 638,
+    "pr_title": "Do not remove quoted annotations on 3.11",
+    "merge_commit": "f77b9adae6893c0efcad80ac1793286d79401fa9",
+    "merged_at": "2022-05-05T01:00:16Z",
+    "link_strength": "strong",
+    "base_ref": "f77b9adae6893c0efcad80ac1793286d79401fa9^1",
+    "truth_src_files": [
+      "README.md",
+      "pyupgrade/_plugins/typing_pep563.py"
+    ],
+    "truth_test_files": [
+      "tests/features/typing_pep563_test.py"
+    ],
+    "truth_churn": 13,
+    "truth_diff": "@@ -780,7 +780,6 @@ Availability:\n \n Availability:\n - File imports `from __future__ import annotations`\n-- `--py311-plus` is passed on the commandline.\n \n ```diff\n -def f(x: 'queue.Queue[int]') -> C:\n@@ -16,10 +16,7 @@\n \n \n def _supported_version(state: State) -> bool:\n-    return (\n-        state.settings.min_version >= (3, 11) or\n-        'annotations' in state.from_imports['__future__']\n-    )\n+    return 'annotations' in state.from_imports['__future__']\n \n \n def _dequote(i: int, tokens: list[Token], *, new: str) -> None:\n@@ -15,7 +15,7 @@\n             'from typing import Literal\\n'\n             'x: \"str\"\\n',\n             (2, 7),\n-            id='not python 3.11+',\n+            id='missing __future__ import',\n         ),\n         pytest.param(\n             'from __future__ import annotations\\n'\n@@ -354,11 +354,6 @@ def test_fix_typing_pep563(s, expected):\n     assert ret == expected\n \n \n-def test_replaced_for_minimum_version():\n-    ret = _fix_plugins('x: \"int\"', settings=Settings(min_version=(3, 11)))\n-    assert ret == 'x: int'\n-\n-\n @pytest.mark.xfail(\n     sys.version_info < (3, 8),\n     reason='posonly args not available in Python3.7',"
+  },
+  {
+    "issue": 620,
+    "issue_title": "Replace `universal_newlines` in `subprocess.check_output`",
+    "pr": 628,
+    "pr_title": "rewrite check_output(...) universal_newlines -> text",
+    "merge_commit": "181f29de0620df48f56036803433df6a07a2924e",
+    "merged_at": "2022-04-08T18:54:36Z",
+    "link_strength": "strong",
+    "base_ref": "181f29de0620df48f56036803433df6a07a2924e^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/subprocess_run.py"
+    ],
+    "truth_test_files": [
+      "tests/features/universal_newlines_to_text_test.py"
+    ],
+    "truth_churn": 11,
+    "truth_diff": "@@ -73,7 +73,7 @@ def visit_Call(\n                 node.func,\n                 state.from_imports,\n                 ('subprocess',),\n-                ('run',),\n+                ('check_output', 'run'),\n             )\n     ):\n         stdout_idx = None\n@@ -65,6 +65,15 @@ def test_fix_universal_newlines_to_text_noop(s, version):\n \n             id='subprocess.run attribute',\n         ),\n+        pytest.param(\n+            'import subprocess\\n'\n+            'subprocess.check_output([\"foo\"], universal_newlines=True)\\n',\n+\n+            'import subprocess\\n'\n+            'subprocess.check_output([\"foo\"], text=True)\\n',\n+\n+            id='subprocess.check_output attribute',\n+        ),\n         pytest.param(\n             'from subprocess import run\\n'\n             'run([\"foo\"], universal_newlines=True)\\n',"
+  },
+  {
+    "issue": 610,
+    "issue_title": "universal_newlines conversion can lead to doubled \"text\"",
+    "pr": 611,
+    "pr_title": "dont rewrite universal_newlines if text or **kwargs present ",
+    "merge_commit": "066fc84e6f0207028b6e92a6ee808a70252c4df0",
+    "merged_at": "2022-03-13T22:25:45Z",
+    "link_strength": "strong",
+    "base_ref": "066fc84e6f0207028b6e92a6ee808a70252c4df0^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/subprocess_run.py"
+    ],
+    "truth_test_files": [
+      "tests/features/universal_newlines_to_text_test.py"
+    ],
+    "truth_churn": 28,
+    "truth_diff": "@@ -79,6 +79,7 @@ def visit_Call(\n         stdout_idx = None\n         stderr_idx = None\n         universal_newlines_idx = None\n+        skip_universal_newlines_rewrite = False\n         for n, keyword in enumerate(node.keywords):\n             if keyword.arg == 'stdout' and is_name_attr(\n                 keyword.value,\n@@ -96,7 +97,12 @@ def visit_Call(\n                 stderr_idx = n\n             elif keyword.arg == 'universal_newlines':\n                 universal_newlines_idx = n\n-        if universal_newlines_idx is not None:\n+            elif keyword.arg == 'text' or keyword.arg is None:\n+                skip_universal_newlines_rewrite = True\n+        if (\n+                universal_newlines_idx is not None and\n+                not skip_universal_newlines_rewrite\n+        ):\n             func = functools.partial(\n                 _replace_universal_newlines_with_text,\n                 arg_idx=len(node.args) + universal_newlines_idx,\n@@ -27,6 +27,26 @@\n             (3, 7),\n             id='universal_newlines not used',\n         ),\n+        pytest.param(\n+            'import subprocess\\n'\n+            'subprocess.run(\\n'\n+            '   [\"foo\"],\\n'\n+            '   text=True,\\n'\n+            '   universal_newlines=True\\n'\n+            ')\\n',\n+            (3, 7),\n+            id='both text and universal_newlines',\n+        ),\n+        pytest.param(\n+            'import subprocess\\n'\n+            'subprocess.run(\\n'\n+            '   [\"foo\"],\\n'\n+            '   universal_newlines=True,\\n'\n+            '   **kwargs,\\n'\n+            ')\\n',\n+            (3, 7),\n+            id='both **kwargs and universal_newlines',\n+        ),\n     ),\n )\n def test_fix_universal_newlines_to_text_noop(s, version):"
+  },
+  {
+    "issue": 583,
+    "issue_title": "Incorrect rewrite of six.reraise with traceback as keyword argument",
+    "pr": 584,
+    "pr_title": "don't rewrite six.reraise with named args",
+    "merge_commit": "e240dd0c9ced40faad014374029b057caac5c5e4",
+    "merged_at": "2021-12-30T16:42:55Z",
+    "link_strength": "strong",
+    "base_ref": "e240dd0c9ced40faad014374029b057caac5c5e4^1",
+    "truth_src_files": [
+      "pyupgrade/_plugins/six_calls.py"
+    ],
+    "truth_test_files": [
+      "tests/features/six_test.py"
+    ],
+    "truth_churn": 14,
+    "truth_diff": "@@ -172,20 +172,29 @@ def visit_Call(\n                 ('reraise',),\n             )\n     ):\n-        if len(node.args) == 2 and not has_starargs(node):\n+        if (\n+                len(node.args) == 2 and\n+                not node.keywords and\n+                not has_starargs(node)\n+        ):\n             func = functools.partial(\n                 find_and_replace_call,\n                 template=RERAISE_2_TMPL,\n             )\n             yield ast_to_offset(node), func\n-        elif len(node.args) == 3 and not has_starargs(node):\n+        elif (\n+                len(node.args) == 3 and\n+                not node.keywords and\n+                not has_starargs(node)\n+        ):\n             func = functools.partial(\n                 find_and_replace_call,\n                 template=RERAISE_3_TMPL,\n             )\n             yield ast_to_offset(node), func\n         elif (\n                 len(node.args) == 1 and\n+                not node.keywords and\n                 isinstance(node.args[0], ast.Starred) and\n                 isinstance(node.args[0].value, ast.Call) and\n                 is_name_attr(\n@@ -24,6 +24,7 @@\n         'class C(six.with_metaclass(Meta, B), D): pass',\n         # cannot determine args to rewrite them\n         'six.reraise(*err)', 'six.u(*a)',\n+        'six.reraise(a, b, tb=c)',\n         'class C(six.with_metaclass(*a)): pass',\n         '@six.add_metaclass(*a)\\n'\n         'class C: pass\\n',"
+  },
+  {
+    "issue": 576,
+    "issue_title": "py39+: abspath(__file__) -> __file__",
+    "pr": 580,
+    "pr_title": "rewrite abspath(__file__) to __file__ in py39+",
+    "merge_commit": "ab02f4a482f4c50331642037b215e94c169f0aef",
+    "merged_at": "2021-12-28T00:48:42Z",
+    "link_strength": "strong",
+    "base_ref": "ab02f4a482f4c50331642037b215e94c169f0aef^1",
+    "truth_src_files": [
+      "README.md",
+      "pyupgrade/_data.py",
+      "pyupgrade/_plugins/abspath_file.py"
+    ],
+    "truth_test_files": [
+      "tests/features/abspath_file_test.py"
+    ],
+    "truth_churn": 119,
+    "truth_diff": "@@ -756,6 +756,19 @@ Availability:\n ```\n \n \n+### remove unnecessary abspath\n+\n+Availability:\n+- `--py39-plus` is passed on the commandline.\n+\n+```diff\n+ from os.path import abspath\n+\n+-abspath(__file__)\n++__file__\n+```\n+\n+\n ### pep 604 typing rewrites\n \n Availability:\n@@ -44,6 +44,7 @@ class State(NamedTuple):\n \n RECORD_FROM_IMPORTS = frozenset((\n     '__future__',\n+    'os.path',\n     'functools',\n     'mmap',\n     'select',\n@@ -0,0 +1,53 @@\n+import ast\n+from typing import Iterable\n+from typing import List\n+from typing import Tuple\n+\n+from tokenize_rt import Offset\n+from tokenize_rt import Token\n+\n+from pyupgrade._ast_helpers import ast_to_offset\n+from pyupgrade._data import register\n+from pyupgrade._data import State\n+from pyupgrade._data import TokenFunc\n+from pyupgrade._token_helpers import find_closing_bracket\n+from pyupgrade._token_helpers import find_open_paren\n+\n+\n+def _remove_abspath(i: int, tokens: List[Token]) -> None:\n+    paren_start = find_open_paren(tokens, i + 1)\n+    paren_end = find_closing_bracket(tokens, paren_start)\n+    while i <= paren_start:\n+        tokens[i] = Token('PLACEHOLDER', '')\n+        i += 1\n+    tokens[paren_end] = Token('PLACEHOLDER', '')\n+\n+\n+@register(ast.Call)\n+def visit_Call(\n+        state: State,\n+        node: ast.Call,\n+        parent: ast.AST,\n+) -> Iterable[Tuple[Offset, TokenFunc]]:\n+    if (\n+            state.settings.min_version >= (3, 9) and\n+            (\n+                (\n+                    isinstance(node.func, ast.Name) and\n+                    node.func.id == 'abspath' and\n+                    node.func.id in state.from_imports['os.path']\n+                ) or\n+                (\n+                    isinstance(node.func, ast.Attribute) and\n+                    isinstance(node.func.value, ast.Attribute) and\n+                    isinstance(node.func.value.value, ast.Name) and\n+                    node.func.value.value.id == 'os' and\n+                    node.func.value.attr == 'path' and\n+                    node.func.attr == 'abspath'\n+                )\n+            ) and\n+            len(node.args) == 1 and\n+            isinstance(node.args[0], ast.Name) and\n+            node.args[0].id == '__file__'\n+    ):\n+        yield ast_to_offset(node), _remove_abspath\n@@ -0,0 +1,52 @@\n+import pytest\n+\n+from pyupgrade._data import Settings\n+from pyupgrade._main import _fix_plugins\n+\n+\n+@pytest.mark.parametrize(\n+    ('s', 'expected'),\n+    (\n+        pytest.param(\n+            'from os.path import abspath\\n'\n+            'abspath(__file__)',\n+            'from os.path import abspath\\n'\n+            '__file__',\n+            id='abspath',\n+        ),\n+        pytest.param(\n+            'import os\\n'\n+            'os.path.abspath(__file__)',\n+            'import os\\n'\n+            '__file__',\n+            id='os.path.abspath',\n+        ),\n+    ),\n+)\n+def test_fix_abspath_file(s, expected):\n+    ret = _fix_plugins(s, settings=Settings(min_version=(3, 9)))\n+    assert ret == expected\n+\n+\n+@pytest.mark.parametrize(\n+    's, min_version',\n+    (\n+        pytest.param(\n+            'abspath(__file__)',\n+            (3, 8),\n+            id='Not Python3.9+',\n+        ),\n+        pytest.param(\n+            'os.path.abspath(file)',\n+            (3, 9),\n+            id='Abspath of not-__file__',\n+        ),\n+        pytest.param(\n+            'os.path.abspath(file, foo)',\n+            (3, 9),\n+            id='Garbage (don\\'t rewrite)',\n+        ),\n+    ),\n+)\n+def test_fix_abspath_file_noop(s, min_version):\n+    assert _fix_plugins(s, settings=Settings(min_version=min_version)) == s"
+  }
+]

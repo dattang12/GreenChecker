@@ -1,0 +1,103 @@
+{
+  "issue_id": "asottile/pyupgrade#804",
+  "status": "fixed",
+  "stop_reason": "model_finished",
+  "diff": "diff --git a/pyupgrade/_plugins/typing_classes.py b/pyupgrade/_plugins/typing_classes.py\nindex 92b7c92..5957fea 100644\n--- a/pyupgrade/_plugins/typing_classes.py\n+++ b/pyupgrade/_plugins/typing_classes.py\n@@ -96,8 +96,11 @@ def _fix_named_tuple(i: int, tokens: list[Token], *, call: ast.Call) -> None:\n         tup.elts[0].value: tup.elts[1]\n         for tup in call.args[1].elts  # type: ignore  # (checked below)\n     }\n-    end, attrs = _typed_class_replacement(tokens, i, call, types)\n-    src = f'class {tokens[i].src}({_unparse(call.func)}):\\n{attrs}'\n+    try:\n+        end, attrs = _typed_class_replacement(tokens, i, call, types)\n+        src = f'class {tokens[i].src}({_unparse(call.func)}):\\n{attrs}'\n+    except NotImplementedError:\n+        return\n     tokens[i:end] = [Token('CODE', src)]\n \n \n@@ -107,8 +110,11 @@ def _fix_kw_typed_dict(i: int, tokens: list[Token], *, call: ast.Call) -> None:\n         for arg in call.keywords\n         if arg.arg is not None\n     }\n-    end, attrs = _typed_class_replacement(tokens, i, call, types)\n-    src = f'class {tokens[i].src}({_unparse(call.func)}):\\n{attrs}'\n+    try:\n+        end, attrs = _typed_class_replacement(tokens, i, call, types)\n+        src = f'class {tokens[i].src}({_unparse(call.func)}):\\n{attrs}'\n+    except NotImplementedError:\n+        return\n     tokens[i:end] = [Token('CODE', src)]\n \n \n@@ -125,20 +131,22 @@ def _fix_dict_typed_dict(\n             call.args[1].values,  # type: ignore  # (checked below)\n         )\n     }\n-    if call.keywords:\n-        total = call.keywords[0].value.value  # type: ignore # (checked below)  # noqa: E501\n-        end, attrs = _typed_class_replacement(tokens, i, call, types)\n-        src = (\n-            f'class {tokens[i].src}('\n-            f'{_unparse(call.func)}, total={total}'\n-            f'):\\n'\n-            f'{attrs}'\n-        )\n-        tokens[i:end] = [Token('CODE', src)]\n-    else:\n-        end, attrs = _typed_class_replacement(tokens, i, call, types)\n-        src = f'class {tokens[i].src}({_unparse(call.func)}):\\n{attrs}'\n-        tokens[i:end] = [Token('CODE', src)]\n+    try:\n+        if call.keywords:\n+            total = call.keywords[0].value.value  # type: ignore # (checked below)  # noqa: E501\n+            end, attrs = _typed_class_replacement(tokens, i, call, types)\n+            src = (\n+                f'class {tokens[i].src}('\n+                f'{_unparse(call.func)}, total={total}'\n+                f'):\\n'\n+                f'{attrs}'\n+            )\n+        else:\n+            end, attrs = _typed_class_replacement(tokens, i, call, types)\n+            src = f'class {tokens[i].src}({_unparse(call.func)}):\\n{attrs}'\n+    except NotImplementedError:\n+        return\n+    tokens[i:end] = [Token('CODE', src)]\n \n \n @register(ast.Assign)\ndiff --git a/tests/features/typing_classes_test.py b/tests/features/typing_classes_test.py\nindex 3142185..081a26f 100644\n--- a/tests/features/typing_classes_test.py\n+++ b/tests/features/typing_classes_test.py\n@@ -266,6 +266,14 @@ def test_fix_typing_named_tuple(s, expected):\n             'D = typing.TypedDict(\"D\", x=int, total=False)',\n             id='kw_typed_dict with total',\n         ),\n+        pytest.param(\n+            'import typing\\n'\n+            'D = typing.TypedDict(\\n'\n+            '    \"D\",\\n'\n+            '    {\"a\": typing.TypedDict(\"a\", {\"b\": int})},\\n'\n+            ')\\n',\n+            id='nested TypedDict call in value position',\n+        ),\n     ),\n )\n def test_typing_typed_dict_noop(s):\n",
+  "test_output": "........................................................................ [  6%]\n........................................................................ [ 13%]\n........................................................................ [ 19%]\n........................................................................ [ 26%]\n........................................................................ [ 32%]\n........................................................................ [ 39%]\n........................................................................ [ 45%]\n........................................................................ [ 52%]\nxxxx.................................................................... [ 58%]\n........................................................................ [ 65%]\n.....................................................s.................. [ 71%]\n........................................................................ [ 78%]\n........................................................................ [ 85%]\n........................................................................ [ 91%]\n........................................................................ [ 98%]\n.....................                                                    [100%]\n1096 passed, 1 skipped, 4 xfailed in 1.83s\n",
+  "tool_call_count": 10,
+  "duration_seconds": 76.4,
+  "tokens_used": 6369,
+  "cost_usd": 0.17814,
+  "base_ref": null,
+  "model_verdict": "FIXED",
+  "files_changed": [
+    "pyupgrade/_plugins/typing_classes.py",
+    "tests/features/typing_classes_test.py"
+  ],
+  "tests_passed": 1096,
+  "tests_failed": 0,
+  "touched_tests_only": false,
+  "transcript": [
+    {
+      "n": 1,
+      "tool": "read_file",
+      "args": {
+        "path": "pyupgrade/_plugins/typing_classes.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 2,
+      "tool": "grep_code",
+      "args": {
+        "pattern": "callback\\(i, tokens\\)|def _fix_plugins",
+        "path_glob": "pyupgrade/_main.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 3,
+      "tool": "read_file",
+      "args": {
+        "path": "pyupgrade/_main.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 4,
+      "tool": "grep_code",
+      "args": {
+        "pattern": "NotImplementedError|noop|_unparse",
+        "path_glob": "tests/features/typing_classes_test.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 5,
+      "tool": "read_file",
+      "args": {
+        "path": "tests/features/typing_classes_test.py"
+      },
+      "ok": true
+    },
+    {
+      "n": 6,
+      "tool": "apply_patch",
+      "args": {
+        "diff": "--- a/pyupgrade/_plugins/typing_classes.py\n+++ b/pyupgrade/_plugins/typing_classes.py\n@@ -94,44 +94,53 @@ def _typed_class_replacement(\n def _fix_named_tuple(i: int, tokens: list[Token], *, call: ast.Call) -> None:\n     types = {\n         tup.elts[0].value: tup.elts[1]\n         for tup in call.args[1].elts  # type: ignore  # (checked below)\n     }\n-    end, attrs = _typed_class_replacement(tokens, i, call, types)\n-    src = f'class {tokens[i].src}({_unparse(call.func)}):\\\\n{attrs}'\n-    tokens[i:end] = [Token('CODE', src)]\n+    try:\n+        end, attrs = _typed_class_replacement(tokens, i, call, types)\n+        src = f'class {tokens[i].src}({_unparse(call.func)}):\\\\n{attrs}'\n+    except NotImplementedError:\n+        return\n+    tokens[i:end] = [Token('CODE', src)]\n \n \n def _fix_kw_typed_dict(i: int, tokens: list[Token], *, call: ast.Call) -> None:\n     types = {\n         arg.arg: arg.value\n         for arg in call.keywords\n         if arg.arg is not None\n     }\n-    end, attrs = _typed_class_replacement(tokens, i, call, types)\n-    src = f'class {tokens[i].src}({_unparse(call.func)}):\\\\n{attrs}'\n-    tokens[i:end] = [Token('CODE', src)]\n+    try:\n+        end, attrs = _typed_class_replacement(tokens, i, call, types)\n+        src = f'class {tokens[i].src}({_unparse(call.func)}):\\\\n{attrs}'\n+    except NotImplementedError:\n+        return\n+    tokens[i:end] = [Token('CODE', src)]\n \n \n def _fix_dict_typed_dict(\n         i: int,\n         tokens: list[Token],\n         *,\n         call: ast.Call,\n ) -> None:\n     types = {\n         k.value: v\n         for k, v in zip(\n             call.args[1].keys,  # type: ignore  # (checked below)\n             call.args[1].values,  # type: ignore  # (checked below)\n         )\n     }\n-    if call.keywords:\n-        total = call.keywords[0].value.value  # type: ignore # (checked below)  # noqa: E501\n-        end, attrs = _typed_class_replacement(tokens, i, call, types)\n-        src = (\n-            f'class {tokens[i].src}('\n-            f'{_unparse(call.func)}, total={total}'\n-            f'):\\\\n'\n-            f'{attrs}'\n-        )\n-        tokens[i:end] = [Token('CODE', src)]\n-    else:\n-        end, attrs = _typed_class_replacement(tokens, i, call, types)\n-        src = f'class {tokens[i].src}({_unparse(call.func)}):\\\\n{attrs}'\n-        tokens[i:end] = [Token('CODE', src)]\n+    try:\n+        if call.keywords:\n+            total = call.keywords[0].value.value  # type: ignore # (checked below)  # noqa: E501\n+            end, attrs = _typed_class_replacement(tokens, i, call, types)\n+            src = (\n+                f'class {tokens[i].src}('\n+                f'{_unparse(call.func)}, total={total}'\n+                f'):\\\\n'\n+                f'{attrs}'\n+            )\n+        else:\n+            end, attrs = _typed_class_replacement(tokens, i, call, types)\n+            src = f'class {tokens[i].src}({_unparse(call.func)}):\\\\n{attrs}'\n+    except NotImplementedError:\n+        return\n+    tokens[i:end] = [Token('CODE', src)]\n"
+      },
+      "ok": false
+    },
+    {
+      "n": 7,
+      "tool": "write_file",
+      "args": {
+        "path": "pyupgrade/_plugins/typing_classes.py",
+        "content": "from __future__ import annotations\n\nimport ast\nimport functools\nfrom collections.abc import Iterable\n\nfrom tokenize_rt import Offset\nfrom tokenize_rt import Token\nfrom tokenize_rt import UNIMPORTANT_WS\n\nfrom pyupgrade._ast_helpers import ast_to_offset\nfrom pyupgrade._ast_helpers import has_starargs\nfrom pyupgrade._ast_helpers import is_name_attr\nfrom pyupgrade._data import register\nfrom pyupgrade._data import State\nfrom pyupgrade._data import TokenFunc\nfrom pyupgrade._token_helpers import KEYWORDS\n\n\ndef _unparse(node: ast.expr) -> str:\n    if isinstance(node, ast.Name):\n        return node.id\n    elif isinstance(node, ast.Attribute):\n        return ''.join((_unparse(node.value), '.', node.attr))\n    elif isinstance(node, ast.Subscript):\n        if isinstance(node.slice, ast.Tuple):\n            if len(node.slice.elts) == 1:\n                slice_s = f'{_unparse(node.slice.elts[0])},'\n            else:\n                slice_s = ', '.join(_unparse(elt) for elt in node.slice.elts)\n        else:\n            slice_s = _unparse(node.slice)\n        return f'{_unparse(node.value)}[{slice_s}]'\n    elif (\n            isinstance(node, ast.Constant) and\n            isinstance(node.value, (str, bytes))\n    ):\n        return repr(node.value)\n    elif isinstance(node, ast.Constant) and node.value is Ellipsis:\n        return '...'\n    elif isinstance(node, ast.List):\n        return '[{}]'.format(', '.join(_unparse(elt) for elt in node.elts))\n    elif isinstance(node, ast.Constant) and node.value in {True, False, None}:\n        return repr(node.value)\n    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):\n        return f'{_unparse(node.left)} | {_unparse(node.right)}'\n    else:\n        raise NotImplementedError(ast.dump(node))\n\n\ndef _typed_class_replacement(\n        tokens: list[Token],\n        i: int,\n        call: ast.Call,\n        types: dict[str, ast.expr],\n) -> tuple[int, str]:\n    while i > 0 and tokens[i - 1].name == 'DEDENT':\n        i -= 1\n    if i > 0 and tokens[i - 1].name in {'INDENT', UNIMPORTANT_WS}:\n        indent = f'{tokens[i - 1].src}{\" \" * 4}'\n    else:\n        indent = ' ' * 4\n\n    # NT = NamedTuple(\"nt\", [(\"a\", int)])\n    # ^i                                 ^end\n    end = i + 1\n    comments = []\n    while end < len(tokens) and tokens[end].name != 'NEWLINE':\n        token = tokens[end]\n        if token.name == 'COMMENT':\n            comments.append(token)\n        end += 1\n\n    parts = []\n    for k, v in types.items():\n        while comments and (v.lineno, v.col_offset) > comments[0].offset:\n            comment = comments.pop(0)\n            parts.append(f'{indent}{comment.src}')\n\n        member = f'{indent}{k}: {_unparse(v)}'\n\n        if comments and v.lineno == comments[0].line:\n            comment = comments.pop(0)\n            member += f'  {comment.src}'\n\n        parts.append(member)\n\n    parts.extend(f'{indent}{x.src}' for x in comments)\n\n    attrs = '\\n'.join(parts)\n    return end, attrs\n\n\ndef _fix_named_tuple(i: int, tokens: list[Token], *, call: ast.Call) -> None:\n    types = {\n        tup.elts[0].value: tup.elts[1]\n        for tup in call.args[1].elts  # type: ignore  # (checked below)\n    }\n    try:\n        end, attrs = _typed_class_replacement(tokens, i, call, types)\n        src = f'class {tokens[i].src}({_unparse(call.func)}):\\n{attrs}'\n    except NotImplementedError:\n        return\n    tokens[i:end] = [Token('CODE', src)]\n\n\ndef _fix_kw_typed_dict(i: int, tokens: list[Token], *, call: ast.Call) -> None:\n    types = {\n        arg.arg: arg.value\n        for arg in call.keywords\n        if arg.arg is not None\n    }\n    try:\n        end, attrs = _typed_class_replacement(tokens, i, call, types)\n        src = f'class {tokens[i].src}({_unparse(call.func)}):\\n{attrs}'\n    except NotImplementedError:\n        return\n    tokens[i:end] = [Token('CODE', src)]\n\n\ndef _fix_dict_typed_dict(\n        i: int,\n        tokens: list[Token],\n        *,\n        call: ast.Call,\n) -> None:\n    types = {\n        k.value: v\n        for k, v in zip(\n            call.args[1].keys,  # type: ignore  # (checked below)\n            call.args[1].values,  # type: ignore  # (checked below)\n        )\n    }\n    try:\n        if call.keywords:\n            total = call.keywords[0].value.value  # type: ignore # (checked below)  # noqa: E501\n            end, attrs = _typed_class_replacement(tokens, i, call, types)\n            src = (\n                f'class {tokens[i].src}('\n                f'{_unparse(call.func)}, total={total}'\n                f'):\\n'\n                f'{attrs}'\n            )\n        else:\n            end, attrs = _typed_class_replacement(tokens, i, call, types)\n            src = f'class {tokens[i].src}({_unparse(call.func)}):\\n{attrs}'\n    except NotImplementedError:\n        return\n    tokens[i:end] = [Token('CODE', src)]\n\n\n@register(ast.Assign)\ndef visit_Assign(\n        state: State,\n        node: ast.Assign,\n        parent: ast.AST,\n) -> Iterable[tuple[Offset, TokenFunc]]:\n    if state.settings.min_version < (3, 6):\n        return\n\n    if (\n            # NT = ...(\"NT\", ...)\n            len(node.targets) == 1 and\n            isinstance(node.targets[0], ast.Name) and\n            isinstance(node.value, ast.Call) and\n            len(node.value.args) >= 1 and\n            isinstance(node.value.args[0], ast.Constant) and\n            isinstance(node.value.args[0].value, str) and\n            node.targets[0].id == node.value.args[0].value and\n            not has_starargs(node.value)\n    ):\n        if (\n                is_name_attr(\n                    node.value.func,\n                    state.from_imports,\n                    ('typing',),\n                    ('NamedTuple',),\n                ) and\n                len(node.value.args) == 2 and\n                not node.value.keywords and\n                isinstance(node.value.args[1], (ast.List, ast.Tuple)) and\n                len(node.value.args[1].elts) > 0 and\n                all(\n                    isinstance(tup, ast.Tuple) and\n                    len(tup.elts) == 2 and\n                    isinstance(tup.elts[0], ast.Constant) and\n                    isinstance(tup.elts[0].value, str) and\n                    tup.elts[0].value.isidentifier() and\n                    tup.elts[0].value not in KEYWORDS\n                    for tup in node.value.args[1].elts\n                )\n        ):\n            func = functools.partial(_fix_named_tuple, call=node.value)\n            yield ast_to_offset(node), func\n        elif (\n                is_name_attr(\n                    node.value.func,\n                    state.from_imports,\n                    ('typing', 'typing_extensions'),\n                    ('TypedDict',),\n                ) and\n                len(node.value.args) == 1 and\n                len(node.value.keywords) > 0 and\n                not any(\n                    keyword.arg == 'total'\n                    for keyword in node.value.keywords\n                )\n        ):\n            func = functools.partial(_fix_kw_typed_dict, call=node.value)\n            yield ast_to_offset(node), func\n        elif (\n                is_name_attr(\n                    node.value.func,\n                    state.from_imports,\n                    ('typing', 'typing_extensions'),\n                    ('TypedDict',),\n                ) and\n                len(node.value.args) == 2 and\n                (\n                    not node.value.keywords or\n                    (\n                        len(node.value.keywords) == 1 and\n                        node.value.keywords[0].arg == 'total' and\n                        isinstance(node.value.keywords[0].value, ast.Constant)\n                    )\n                ) and\n                isinstance(node.value.args[1], ast.Dict) and\n                node.value.args[1].keys and\n                all(\n                    isinstance(k, ast.Constant) and\n                    isinstance(k.value, str) and\n                    k.value.isidentifier() and\n                    k.value not in KEYWORDS\n                    for k in node.value.args[1].keys\n                )\n        ):\n            func = functools.partial(_fix_dict_typed_dict, call=node.value)\n            yield ast_to_offset(node), func\n"
+      },
+      "ok": true
+    },
+    {
+      "n": 8,
+      "tool": "apply_patch",
+      "args": {
+        "diff": "--- a/tests/features/typing_classes_test.py\n+++ b/tests/features/typing_classes_test.py\n@@ -265,6 +265,15 @@\n         pytest.param(\n             'D = typing.TypedDict(\"D\", x=int, total=False)',\n             id='kw_typed_dict with total',\n         ),\n+        pytest.param(\n+            'import typing\\n'\n+            'D = typing.TypedDict(\\n'\n+            '    \"D\",\\n'\n+            '    {\"a\": typing.TypedDict(\"a\", {\"b\": int})},\\n'\n+            ')\\n',\n+            id='nested TypedDict call in value position',\n+        ),\n     ),\n )\n def test_typing_typed_dict_noop(s):\n"
+      },
+      "ok": true
+    },
+    {
+      "n": 9,
+      "tool": "run_tests",
+      "args": {},
+      "ok": true
+    },
+    {
+      "n": 10,
+      "tool": "git_diff",
+      "args": {},
+      "ok": true
+    }
+  ],
+  "expected": "failed",
+  "truth_files": []
+}

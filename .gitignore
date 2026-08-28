@@ -10,8 +10,8 @@ venv/
 .env.*
 !.env.example
 
-# Agent run artefacts (Phase 3 eval results, Phase 7 database)
-results/
+# Eval results ARE tracked on purpose -- Phase 3 requires versioned JSON so
+# runs can be diffed over time. Only the Phase 7 database is ignored.
 *.sqlite
 *.sqlite3
 *.db
