@@ -1,0 +1,193 @@
+{
+  "rows": [
+    {
+      "issue": 1054,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.75,
+      "reason": "Concrete feature request to remove redundant encoding=\"UTF-8\" parameters in Python 3.15+ following PEP 686, implementable through AST pattern matching and rewriting within the tool's existing scope.",
+      "triage_cost": 0.001662,
+      "actual_resolved": false,
+      "actual_cost": 0.250944,
+      "actual_duration": 104.8
+    },
+    {
+      "issue": 1042,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.85,
+      "reason": "This is a concrete bug report with a minimal reproducible example showing pyupgrade failing to handle implicit string concatenation in annotations with `from __future__ import annotations`.",
+      "triage_cost": 0.00159,
+      "actual_resolved": true,
+      "actual_cost": 0.141321,
+      "actual_duration": 64.9
+    },
+    {
+      "issue": 989,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.85,
+      "reason": "This is a concrete bug with clear reproduction: the `.encode(\"utf-8\")` fixer incorrectly removes function arguments instead of the encoding parameter, causing wrong output.",
+      "triage_cost": 0.001931,
+      "actual_resolved": true,
+      "actual_cost": 0.153487,
+      "actual_duration": 98.6
+    },
+    {
+      "issue": 976,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.9,
+      "reason": "This is a well-defined bug with a clear reproduction case, expected behavior, and a concrete fix strategy (insert space before opening braces in f-string expressions).",
+      "triage_cost": 0.00198,
+      "actual_resolved": false,
+      "actual_cost": 0.113846,
+      "actual_duration": 67.3
+    },
+    {
+      "issue": 936,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.85,
+      "reason": "This is a concrete bug: pyupgrade incorrectly transforms `\"separator\".join(shlex.quote(...) for ...)` to `shlex.join(...)` when the separator is not a space, making the transformation incorrect and requiring a fix to check the separator.",
+      "triage_cost": 0.001818,
+      "actual_resolved": true,
+      "actual_cost": 0.028015,
+      "actual_duration": 26.3
+    },
+    {
+      "issue": 932,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.85,
+      "reason": "This is a concrete bug: pyupgrade produces syntactically invalid code when collapsing multi-line exceptions with duplicates and comments, which is clearly fixable within the tool's scope.",
+      "triage_cost": 0.001784,
+      "actual_resolved": false,
+      "actual_cost": 0.113034,
+      "actual_duration": 65.4
+    },
+    {
+      "issue": 918,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.75,
+      "reason": "This is a concrete feature request with specific, well-defined examples showing the syntax pattern to recognize and transform, which fits squarely within pyupgrade's existing scope of removing version checks.",
+      "triage_cost": 0.001841,
+      "actual_resolved": false,
+      "actual_cost": 0.245491,
+      "actual_duration": 103.4
+    },
+    {
+      "issue": 899,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.85,
+      "reason": "This is a well-specified, concrete code transformation for pyupgrade: replacing lambda expressions in defaultdict's default_factory with simpler builtin type constructors when applicable.",
+      "triage_cost": 0.00188,
+      "actual_resolved": false,
+      "actual_cost": 0.142928,
+      "actual_duration": 78.2
+    },
+    {
+      "issue": 889,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.85,
+      "reason": "This is a concrete bug report with a clear reproduction case: pyupgrade incorrectly transforms a format string, producing invalid syntax that loses the variable reference.",
+      "triage_cost": 0.001612,
+      "actual_resolved": true,
+      "actual_cost": 0.101098,
+      "actual_duration": 64.9
+    },
+    {
+      "issue": 854,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.75,
+      "reason": "This is a concrete code upgrade request for pyupgrade to recognize and simplify a specific pattern involving shlex.quote() on Python 3.8+, which is within scope for a focused code edit.",
+      "triage_cost": 0.001624,
+      "actual_resolved": false,
+      "actual_cost": 0.188609,
+      "actual_duration": 107.5
+    },
+    {
+      "issue": 848,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.8,
+      "reason": "This is a concrete bug report showing that pyupgrade fails to merge consecutive `if`/`elif` blocks when version checks can be simplified by removing a condition already satisfied by the minimum Python version.",
+      "triage_cost": 0.001784,
+      "actual_resolved": false,
+      "actual_cost": 0.357291,
+      "actual_duration": 170.9
+    },
+    {
+      "issue": 817,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.95,
+      "reason": "This is a concrete, reproducible bug with clear expected behavior: when rewriting imports to use `collections.abc`, pyupgrade should not duplicate the alias from `Sequence as SequenceType`.",
+      "triage_cost": 0.001693,
+      "actual_resolved": true,
+      "actual_cost": 0.245789,
+      "actual_duration": 121.8
+    },
+    {
+      "issue": 766,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.9,
+      "reason": "Well-specified bug with clear reproduction: pyupgrade crashes with NotImplementedError when encountering a union type (using `|`) in a functional TypedDict definition; the fix requires adding support for BinOp unparsing in the _unparse function.",
+      "triage_cost": 0.002372,
+      "actual_resolved": true,
+      "actual_cost": 0.075693,
+      "actual_duration": 37.9
+    },
+    {
+      "issue": 755,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.85,
+      "reason": "This is a concrete, well-specified feature request to add a new upgrade rule for Python 3.11+ that converts `datetime.timezone.utc` to `datetime.UTC`, which is straightforward to implement in pyupgrade's existing plugin architecture.",
+      "triage_cost": 0.001705,
+      "actual_resolved": false,
+      "actual_cost": 0.135443,
+      "actual_duration": 59.9
+    },
+    {
+      "issue": 749,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.92,
+      "reason": "Clear bug with concrete reproduction: pyupgrade incorrectly rewrites unittest.makeSuite() with a prefix argument, dropping the prefix and causing a TypeError; the fix requires detecting this case and either preserving the prefix differently or declining the rewrite.",
+      "triage_cost": 0.001787,
+      "actual_resolved": true,
+      "actual_cost": 0.028929,
+      "actual_duration": 34.9
+    },
+    {
+      "issue": 744,
+      "attempt": true,
+      "decision": "attempt",
+      "confidence": 0.75,
+      "reason": "Concrete feature request to add a new --py311-plus rewrite rule converting G[Unpack[T]] to G[*T] syntax as per PEP 646.",
+      "triage_cost": 0.001607,
+      "actual_resolved": true,
+      "actual_cost": 0.12423,
+      "actual_duration": 70.6
+    }
+  ],
+  "before": {
+    "spend": 2.446148,
+    "resolved": 8,
+    "cost_per_resolved": 0.3057685,
+    "wall_clock_s": 1277.3
+  },
+  "after": {
+    "spend": 2.474818,
+    "resolved": 8,
+    "cost_per_resolved": 0.30935225,
+    "wall_clock_s": 1277.3
+  },
+  "triage_spend": 0.02867
+}

@@ -1,0 +1,152 @@
+[
+  {
+    "issue": 982,
+    "title": "PEP 604 typing duplication removal",
+    "decision": "attempt",
+    "confidence": 0.85,
+    "reason": "This is a concrete bug fix request with clear reproduction cases and expected output: deduplicating types in PEP 604 union syntax to prevent malformed types like `int | None | None`.",
+    "attempt": true,
+    "cost_usd": 0.002324,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 961,
+    "title": "What's the rationale for the rewrite of unpacked list comprehensions",
+    "decision": "decline",
+    "confidence": 0.85,
+    "reason": "This is a discussion questioning the design rationale for an existing feature, not a bug report or concrete request for behavior change.",
+    "attempt": false,
+    "cost_usd": 0.002089,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 960,
+    "title": "Convert `__anext__` calls on Python 3.10+",
+    "decision": "attempt",
+    "confidence": 0.75,
+    "reason": "This is a concrete, well-specified transformation request (convert `obj.__anext__()` to `anext(obj)` for Python 3.10+) that fits pyupgrade's scope of modernizing Python code, similar to existing builtin migrations.",
+    "attempt": true,
+    "cost_usd": 0.001761,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 872,
+    "title": "nested context managers",
+    "decision": "attempt",
+    "confidence": 0.85,
+    "reason": "This is a well-defined, concrete code transformation for nested context managers that aligns with Python 3.10+'s parenthesized context manager syntax, implementable within tool budget.",
+    "attempt": true,
+    "cost_usd": 0.001637,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 849,
+    "title": "auto-remove things from TYPE_CHECKING blocks",
+    "decision": "attempt",
+    "confidence": 0.75,
+    "reason": "This is a concrete, well-specified feature request for removing TYPE_CHECKING blocks when the imported items become directly available in newer Python versions, with a clear example of the desired transformation.",
+    "attempt": true,
+    "cost_usd": 0.001634,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 829,
+    "title": "Rewrite `f\"x={x!r}\"` to `f\"{x=}` on Python 3.8+",
+    "decision": "attempt",
+    "confidence": 0.85,
+    "reason": "This is a concrete feature request to add a pyupgrade rule for rewriting f-strings with the `!r` conversion to use the `=` specifier (Python 3.8+), with clear before/after behavior and a regex pattern hint.",
+    "attempt": true,
+    "cost_usd": 0.001788,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 819,
+    "title": "replace socket.timeout on py3.10+ and asyncio.TimeoutError/concurrent.futures.TimeoutError on py3.11+ with TimeoutError",
+    "decision": "attempt",
+    "confidence": 0.85,
+    "reason": "This is a concrete feature request to add support for replacing deprecated TimeoutError aliases with the built-in TimeoutError on Python 3.10+/3.11+, which is well-scoped and fits pyupgrade's mission of upgrading Python code.",
+    "attempt": true,
+    "cost_usd": 0.001897,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 804,
+    "title": "Embedded TypedDict produces AST error on Python 3.10",
+    "decision": "attempt",
+    "confidence": 0.85,
+    "reason": "This is a concrete bug with clear reproduction: the `_unparse` function in typing_classes.py fails to handle nested TypedDict calls within subscript slices, which is a specific AST node type it doesn't support yet.",
+    "attempt": true,
+    "cost_usd": 0.00284,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 768,
+    "title": "an option to use the currently executing python version to determine what the rewrite target is",
+    "decision": "attempt",
+    "confidence": 0.7,
+    "reason": "This is a concrete feature request for a new command-line option that would automatically detect the current Python version instead of requiring manual specification; implementation is localized to argument parsing and version detection logic.",
+    "attempt": true,
+    "cost_usd": 0.001621,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 765,
+    "title": "Prefer property decorator to explicit call",
+    "decision": "attempt",
+    "confidence": 0.72,
+    "reason": "This is a concrete feature request to detect and upgrade pre-decorator property syntax (property assignment) to modern @property decorator syntax, which is a well-defined code transformation achievable within budget.",
+    "attempt": true,
+    "cost_usd": 0.001774,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 532,
+    "title": "Remove inheriting from object when creating classes with type()",
+    "decision": "attempt",
+    "confidence": 0.88,
+    "reason": "This is a concrete, well-specified code modernization request: remove `object` from the bases tuple when creating classes with `type()`, mirroring the existing class syntax upgrade.",
+    "attempt": true,
+    "cost_usd": 0.001661,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 518,
+    "title": "upgrade positional only backwards compatability syntax in py38+",
+    "decision": "attempt",
+    "confidence": 0.75,
+    "reason": "This is a concrete, well-specified feature request to convert backwards-compatible positional-only parameter syntax (*args unpacking) to modern Python 3.8+ syntax (/ marker), which is within scope for a targeted code transformation tool.",
+    "attempt": true,
+    "cost_usd": 0.001846,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 486,
+    "title": "unwrap exec/eval literals",
+    "decision": "attempt",
+    "confidence": 0.75,
+    "reason": "This describes a concrete, well-specified code transformation: detecting and unwrapping exec/eval calls containing string literals with version-gated Python 3 syntax, which is achievable within the 15-tool-call budget for a targeted fix.",
+    "attempt": true,
+    "cost_usd": 0.001787,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 353,
+    "title": "constant fold literals in f\", .format and % formatting",
+    "decision": "attempt",
+    "confidence": 0.75,
+    "reason": "This is a concrete feature request to add constant folding for literal values in f-strings, .format(), and % formatting, which is well-specified and actionable for a code transformation tool.",
+    "attempt": true,
+    "cost_usd": 0.001713,
+    "model": "claude-haiku-4-5"
+  },
+  {
+    "issue": 162,
+    "title": "Rewrite six.PY2 ternary",
+    "decision": "attempt",
+    "confidence": 0.75,
+    "reason": "Concrete, well-specified transformation: rewrite ternary expressions using `six.PY2` to remove the outdated Python 2 check, which is a typical pyupgrade task.",
+    "attempt": true,
+    "cost_usd": 0.001621,
+    "model": "claude-haiku-4-5"
+  }
+]

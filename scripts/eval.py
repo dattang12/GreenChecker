@@ -38,6 +38,7 @@ from agent import run_issue  # noqa: E402
 from judge import judge_diff  # noqa: E402
 from llm import MODEL_FIX, Usage, make_client  # noqa: E402
 from prompts import MAX_TOOL_CALLS  # noqa: E402
+from store import log_run  # noqa: E402
 from validation import fail_to_pass  # noqa: E402
 
 GOLDEN = ROOT / "data" / "goldenset.verified.json"
@@ -153,6 +154,12 @@ def report(rows: list[dict], meta: dict) -> str:
             f"{r['stop_reason']}"
         )
     lines.append("-" * 96)
+
+    traced = [r for r in rows if r.get("trace_url")]
+    if traced:
+        lines += ["", "  traces:"]
+        for r in traced:
+            lines.append(f"    {r['issue_id'].split('#')[-1]:<8} {r['trace_url']}")
     return "\n".join(lines)
 
 
@@ -163,6 +170,11 @@ def main() -> int:
     ap.add_argument("--estimate", action="store_true", help="print cost estimate and exit")
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--tag", default="", help="label for this run, e.g. 'baseline'")
+    ap.add_argument(
+        "--min-pass-rate",
+        type=float,
+        help="exit non-zero if the resolved rate falls below this (0-1). Used by CI.",
+    )
     args = ap.parse_args()
 
     tasks = load_tasks(args.limit, args.only)
@@ -204,6 +216,10 @@ def main() -> int:
             )
         print(f"      -> {rows[-1].get('status')} / {rows[-1]['fail_to_pass'].get('result')} "
               f"/ judge={rows[-1]['judge'].get('score')}\n", flush=True)
+        try:
+            log_run(rows[-1], source="eval", tag=args.tag, model=MODEL_FIX)
+        except Exception as exc:  # noqa: BLE001 - the log is not the deliverable
+            print(f"      (run log failed: {exc})")
 
     meta = {
         "run_id": run_id,
@@ -224,6 +240,14 @@ def main() -> int:
     path = outdir / f"{run_id}.json"
     path.write_text(json.dumps({"meta": meta, "results": rows}, indent=2), encoding="utf-8")
     print(f"\nwrote {path}")
+
+    if args.min_pass_rate is not None:
+        rate = sum(1 for r in rows if r["resolved"]) / n if n else 0.0
+        print(f"\ngate: {rate:.0%} resolved vs threshold {args.min_pass_rate:.0%}")
+        if rate < args.min_pass_rate:
+            print("GATE FAILED")
+            return 1
+        print("GATE PASSED")
     return 0
 
 

@@ -16,6 +16,7 @@ harness re-runs the suite itself and decides the status from what it observes.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import pathlib
 import re
@@ -36,6 +37,7 @@ from prompts import (  # noqa: E402
 )
 from sandbox import Sandbox  # noqa: E402
 from tools import TOOL_SCHEMAS, Toolbox  # noqa: E402
+from tracing import Tracer, make_tracer, summarize_messages  # noqa: E402
 
 DEFAULT_TIMEOUT_S = 300
 MAX_TOKENS = 16000
@@ -56,6 +58,8 @@ class AgentResult:
     tokens_used: int
     cost_usd: float
     base_ref: str | None = None
+    trace_id: str | None = None
+    trace_url: str | None = None
     model_verdict: str | None = None
     files_changed: list[str] = field(default_factory=list)
     tests_passed: int = 0
@@ -107,6 +111,8 @@ def run_issue(
     max_tool_calls: int = MAX_TOOL_CALLS,
     timeout_s: int = DEFAULT_TIMEOUT_S,
     verbose: bool = False,
+    tracer: Tracer | None = None,
+    use_triage: bool = False,
 ) -> AgentResult:
     """Run one issue to completion.
 
@@ -116,6 +122,7 @@ def run_issue(
     only correct for issues that are still open.
     """
     client = client or make_client()
+    tracer = tracer if tracer is not None else make_tracer()
     usage = Usage()
     started = time.perf_counter()
 
@@ -126,13 +133,78 @@ def run_issue(
         if verbose:
             print(f"  [{elapsed():5.1f}s] {msg}", flush=True)
 
+    # Pre-flight: a ~$0.002 Haiku call that can decline before the expensive
+    # loop starts. Biased toward attempting -- see triage.py.
+    if use_triage:
+        from triage import triage_issue
+
+        with tracer.observation(
+            name="triage", as_type="span", input={"issue_id": issue["id"]}
+        ) as tspan:
+            verdict = triage_issue(
+                client,
+                title=issue.get("title", ""),
+                body=issue.get("body", ""),
+                comments=issue.get("comments"),
+                usage=usage,
+            )
+            tspan.update(output=verdict)
+        log(f"triage: {verdict['decision']} "
+            f"(conf {verdict['confidence']}) ${verdict['cost_usd']:.5f}")
+
+        if not verdict["attempt"]:
+            tracer.flush()
+            return AgentResult(
+                issue_id=issue["id"],
+                status="skipped",
+                stop_reason="declined_by_triage",
+                diff="",
+                test_output="",
+                tool_call_count=0,
+                duration_seconds=round(elapsed(), 1),
+                tokens_used=usage.input_tokens + usage.output_tokens,
+                cost_usd=round(usage.cost_usd, 6),
+                base_ref=base_ref,
+                model_verdict="SKIP",
+                transcript=[{"triage": verdict}],
+            )
+
     transcript: list[dict[str, Any]] = []
     tool_calls = 0
     failed_test_runs = 0
     stop_reason = "model_finished"
     final_text = ""
 
-    with Sandbox(ref=base_ref) as sb:
+    trace_id: str | None = None
+    trace_url: str | None = None
+
+    # ExitStack rather than nested `with`s: the tracing contexts wrap the whole
+    # run, but nesting them would re-indent the entire loop for no benefit.
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(
+            tracer.attributes(
+                session_id=issue["id"],
+                tags=["agent-run", f"model:{model}"],
+                trace_name=f"triage {issue['id']}",
+            )
+        )
+        root = stack.enter_context(
+            tracer.observation(
+                name=f"agent-run {issue['id']}",
+                as_type="agent",
+                input={"issue_id": issue["id"], "title": issue.get("title", "")},
+                metadata={
+                    "base_ref": base_ref,
+                    "max_tool_calls": max_tool_calls,
+                    "timeout_s": timeout_s,
+                    "model": model,
+                },
+            )
+        )
+        trace_id = tracer.trace_id()
+        trace_url = tracer.trace_url()
+
+        sb = stack.enter_context(Sandbox(ref=base_ref))
         tb = Toolbox(sb)
         messages: list[dict[str, Any]] = [
             {
@@ -168,21 +240,44 @@ def run_issue(
             _clear_cache_marks(messages)
             _mark_cache_breakpoint(messages)
 
-            resp = client.messages.create(
+            turn = len(
+                [m for m in messages if m["role"] == "assistant"]
+            ) + 1
+            with tracer.observation(
+                name=f"llm-turn-{turn}",
+                as_type="generation",
                 model=model,
-                max_tokens=MAX_TOKENS,
-                system=[
-                    {
-                        "type": "text",
-                        "text": SYSTEM_PROMPT,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
-                thinking={"type": "adaptive", "display": "summarized"},
-                tools=TOOL_SCHEMAS,
-                messages=messages,
-            )
-            call_cost = usage.add(model, resp.usage)
+                input=summarize_messages(messages),
+                metadata={"tool_calls_so_far": tool_calls},
+            ) as gen:
+                resp = client.messages.create(
+                    model=model,
+                    max_tokens=MAX_TOKENS,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": SYSTEM_PROMPT,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                    thinking={"type": "adaptive", "display": "summarized"},
+                    tools=TOOL_SCHEMAS,
+                    messages=messages,
+                )
+                call_cost = usage.add(model, resp.usage)
+                gen.update(
+                    output=_text_of(resp.content)
+                    or f"(tool_use: {[getattr(b, 'name', '') for b in resp.content if getattr(b, 'type', None) == 'tool_use']})",
+                    usage_details={
+                        "input": resp.usage.input_tokens,
+                        "output": resp.usage.output_tokens,
+                        "cache_read_input_tokens": getattr(
+                            resp.usage, "cache_read_input_tokens", 0
+                        ) or 0,
+                    },
+                    cost_details={"total": call_cost},
+                    metadata={"stop_reason": resp.stop_reason},
+                )
             log(f"llm turn: stop={resp.stop_reason} ${call_cost:.4f}")
 
             if resp.stop_reason == "refusal":
@@ -221,7 +316,18 @@ def run_issue(
                 tool_calls += 1
                 args = block.input if isinstance(block.input, dict) else {}
                 log(f"tool {tool_calls}/{max_tool_calls}: {block.name}({list(args)})")
-                out = tb.dispatch(block.name, args)
+
+                with tracer.observation(
+                    name=f"{tool_calls:02d}-{block.name}",
+                    as_type="tool",
+                    input=args,
+                ) as tool_span:
+                    out = tb.dispatch(block.name, args)
+                    tool_span.update(
+                        output=out,
+                        level="DEFAULT" if out.get("ok") else "WARNING",
+                        status_message=None if out.get("ok") else str(out.get("error", ""))[:200],
+                    )
 
                 if block.name == "run_tests" and not out.get("ok"):
                     failed_test_runs += 1
@@ -241,22 +347,60 @@ def run_issue(
 
         # -- verification: never take the model's word for it ---------------
         log("verifying: running full suite from the harness")
-        final_diff = tb.git_diff()
-        final_tests = tb.run_tests()
+        with tracer.observation(
+            name="verify-harness-suite",
+            as_type="span",
+            input={"note": "harness re-runs the suite; the model's VERDICT is only a claim"},
+        ) as verify_span:
+            final_diff = tb.git_diff()
+            final_tests = tb.run_tests()
+            verify_span.update(
+                output={
+                    "suite_ok": final_tests.get("ok"),
+                    "passed": final_tests.get("passed"),
+                    "failed": final_tests.get("failed"),
+                    "diff_bytes": final_diff.get("diff_bytes"),
+                }
+            )
 
-    diff_text = final_diff.get("diff", "") if final_diff.get("ok") else ""
-    has_changes = bool(diff_text.strip())
-    files = sorted(set(_DIFF_FILE_RE.findall(diff_text)))
+        diff_text = final_diff.get("diff", "") if final_diff.get("ok") else ""
+        has_changes = bool(diff_text.strip())
+        files = sorted(
+            f
+            for f in set(_DIFF_FILE_RE.findall(diff_text))
+            # Patch-tool leftovers are not changes the agent intended.
+            if not f.endswith((".rej", ".orig"))
+        )
 
-    m = _VERDICT_RE.search(final_text or "")
-    verdict = m.group(1).upper() if m else None
+        m = _VERDICT_RE.search(final_text or "")
+        verdict = m.group(1).upper() if m else None
 
-    if not has_changes:
-        status = "skipped" if verdict == "SKIP" else "failed"
-    elif final_tests.get("ok"):
-        status = "fixed"
-    else:
-        status = "failed"
+        if not has_changes:
+            status = "skipped" if verdict == "SKIP" else "failed"
+        elif final_tests.get("ok"):
+            status = "fixed"
+        else:
+            status = "failed"
+
+        # Update the root span before the stack closes it.
+        root.update(
+            output={
+                "status": status,
+                "stop_reason": stop_reason,
+                "model_verdict": verdict,
+                "files_changed": files,
+                "tool_calls": tool_calls,
+            },
+            metadata={
+                "cost_usd": round(usage.cost_usd, 6),
+                "tokens": usage.input_tokens + usage.output_tokens,
+                "duration_s": round(elapsed(), 1),
+            },
+            level="DEFAULT" if status == "fixed" else "WARNING",
+            status_message=None if status == "fixed" else stop_reason,
+        )
+
+    tracer.flush()
 
     return AgentResult(
         issue_id=issue["id"],
@@ -269,6 +413,8 @@ def run_issue(
         tokens_used=usage.input_tokens + usage.output_tokens,
         cost_usd=round(usage.cost_usd, 6),
         base_ref=base_ref,
+        trace_id=trace_id,
+        trace_url=trace_url,
         model_verdict=verdict,
         files_changed=files,
         tests_passed=final_tests.get("passed", 0),

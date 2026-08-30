@@ -1,0 +1,73 @@
+name: eval-gate
+
+# Regression gate: run the agent against a subset of the golden set and fail
+# the build if the resolved rate drops below the threshold.
+#
+# Runs on PRs and on pushes to dev, not on every push to main -- each run makes
+# real Anthropic API calls and costs real money (~$0.20 per task).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      task_limit:
+        description: "Number of golden-set tasks to run"
+        default: "6"
+      min_pass_rate:
+        description: "Fail the build below this resolved rate (0-1)"
+        default: "0.30"
+
+env:
+  TASK_LIMIT: ${{ github.event.inputs.task_limit || '6' }}
+  MIN_PASS_RATE: ${{ github.event.inputs.min_pass_rate || '0.30' }}
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build the sandbox image
+        run: |
+          docker build -t repo-triage-sandbox:latest \
+            --build-arg REPO_URL=https://github.com/asottile/pyupgrade \
+            --build-arg REPO_REF=main .
+
+      - name: Sanity-check the sandbox before spending API credit
+        run: python scripts/smoke_test.py
+
+      - name: Run the eval gate
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tracing is optional and deliberately off in CI: a build must not
+          # fail because the observability stack is unreachable.
+          LANGFUSE_ENABLED: "0"
+        run: |
+          python scripts/eval.py \
+            --limit "$TASK_LIMIT" \
+            --quiet \
+            --tag "ci-${GITHUB_SHA::7}" \
+            --min-pass-rate "$MIN_PASS_RATE"
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: results/eval/*.json
+          retention-days: 30

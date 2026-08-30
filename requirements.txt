@@ -1,0 +1,14 @@
+anthropic>=1.2.0
+python-dotenv>=1.0.0
+
+# Tracing (Phase 4). Optional at runtime -- the agent no-ops without it.
+langfuse>=4.15.0
+
+# Service (Phase 6)
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+pydantic>=2.9.0
+
+# Dashboard (Phase 7)
+streamlit>=1.40.0
+pandas>=2.2.0

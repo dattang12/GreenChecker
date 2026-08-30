@@ -128,8 +128,18 @@ class Toolbox:
                 "note": "Applied, but your @@ hunk line counts were wrong.",
             }
 
+        # GNU patch leaves .rej/.orig files behind on partial application.
+        # Those are tooling artefacts, not the agent's work: left in place they
+        # show up in git_diff, get counted as changed source files, and then
+        # break any `git checkout --` that tries to revert them.
         fuzzy = self.sandbox.exec(
-            "patch -p1 --batch --forward --fuzz=2 --no-backup-if-mismatch",
+            "patch -p1 --batch --forward --fuzz=2 --no-backup-if-mismatch; "
+            "rc=$?; "
+            # Prune .git: walking the object store made this take longer than
+            # the whole tool timeout and turned a working patch into a failure.
+            r"find . -path ./.git -prune -o \( -name '*.rej' -o -name '*.orig' \) "
+            r"-exec rm -f {} + ; "
+            "exit $rc",
             timeout=60,
             stdin=diff,
         )

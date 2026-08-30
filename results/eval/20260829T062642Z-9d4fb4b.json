@@ -1,0 +1,202 @@
+{
+  "meta": {
+    "run_id": "20260829T062642Z-9d4fb4b",
+    "tag": "traced-failure",
+    "model": "claude-sonnet-5",
+    "task_count": 1,
+    "max_tool_calls": 15,
+    "total_cost_usd": 0.199605,
+    "judge_usage": {
+      "input_tokens": 3217,
+      "output_tokens": 421,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "cost_usd": 0.010644,
+      "llm_calls": 1
+    },
+    "created_utc": "2026-08-29T06:28:34.838618+00:00"
+  },
+  "results": [
+    {
+      "issue_id": "asottile/pyupgrade#976",
+      "status": "fixed",
+      "stop_reason": "tool_budget_exhausted",
+      "diff": "diff --git a/pyupgrade/_plugins/set_literals.py b/pyupgrade/_plugins/set_literals.py\nindex e3369ae..2a88880 100644\n--- a/pyupgrade/_plugins/set_literals.py\n+++ b/pyupgrade/_plugins/set_literals.py\n@@ -40,7 +40,17 @@ def _fix_set_literal(i: int, tokens: list[Token], *, arg: ast.expr) -> None:\n     tokens[end_index] = Token('OP', '}')\n     for index in reversed(set_victims.starts + set_victims.ends):\n         remove_brace(tokens, index)\n-    tokens[i:i + 2] = [Token('OP', '{')]\n+    if (\n+            i >= 2 and\n+            tokens[i - 1].matches(name='OP', src='{') and\n+            tokens[i - 2].name in {'FSTRING_START', 'FSTRING_MIDDLE'}\n+    ):\n+        # a `{` immediately following the start of an f-string expression\n+        # would be interpreted as a literal `{{` -- add a space so the\n+        # substitution doesn't change the f-string's meaning\n+        tokens[i:i + 2] = [Token('UNIMPORTANT_WS', ' '), Token('OP', '{')]\n+    else:\n+        tokens[i:i + 2] = [Token('OP', '{')]\n \n \n @register(ast.Call)\ndiff --git a/tests/features/set_literals_test.py b/tests/features/set_literals_test.py\nindex 1525181..bf58708 100644\n--- a/tests/features/set_literals_test.py\n+++ b/tests/features/set_literals_test.py\n@@ -101,6 +101,11 @@ def test_fix_sets_noop(s):\n             '{f\"{x})\"}',\n             id='3.12 fstring containing close brace',\n         ),\n+        pytest.param(\n+            'f\"{set([1 + 1])}\"',\n+            'f\"{ {1 + 1}}\"',\n+            id='set literal at start of f-string expression',\n+        ),\n     ),\n )\n def test_sets(s, expected):\n",
+      "test_output": "........................................................................ [  7%]\n........................................................................ [ 14%]\n........................................................................ [ 21%]\n........................................................................ [ 28%]\n........................................................................ [ 36%]\n........................................................................ [ 43%]\n........................................................................ [ 50%]\n................xxxx.................................................... [ 57%]\n........................................................................ [ 65%]\n........................................................................ [ 72%]\n........................................................................ [ 79%]\n........................................................................ [ 86%]\n........................................................................ [ 94%]\n..........................................................               [100%]\n990 passed, 4 xfailed in 3.86s\n",
+      "tool_call_count": 15,
+      "duration_seconds": 96.5,
+      "tokens_used": 8050,
+      "cost_usd": 0.188961,
+      "base_ref": "c29b8d6e0b3d34db33a4dcdc67ccb0365e150dbc^1",
+      "trace_id": "a46f0d72228b9529a4f9a411f4a82201",
+      "trace_url": "http://localhost:3000/project/repo-triage-agent/traces/a46f0d72228b9529a4f9a411f4a82201",
+      "model_verdict": null,
+      "files_changed": [
+        "pyupgrade/_plugins/set_literals.py",
+        "tests/features/set_literals_test.py"
+      ],
+      "tests_passed": 990,
+      "tests_failed": 0,
+      "touched_tests_only": false,
+      "transcript": [
+        {
+          "n": 1,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "def replace_call|_replace_call|sets.py",
+            "path_glob": "pyupgrade/**"
+          },
+          "ok": true
+        },
+        {
+          "n": 2,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "def replace_call",
+            "path_glob": "pyupgrade/_token_helpers.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 3,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "def _replace_brace|OPENING|opening brace|FSTRING",
+            "path_glob": "pyupgrade/_plugins/sets.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 4,
+          "tool": "read_file",
+          "args": {
+            "path": "pyupgrade/_plugins/sets.py"
+          },
+          "ok": false
+        },
+        {
+          "n": 5,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "set\\(",
+            "path_glob": "pyupgrade/_plugins/*.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 6,
+          "tool": "read_file",
+          "args": {
+            "path": "pyupgrade/_plugins/set_literals.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 7,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "fstring|f'|f\"",
+            "path_glob": "tests/features/set_literals_test.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 8,
+          "tool": "read_file",
+          "args": {
+            "path": "pyupgrade/_token_helpers.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 9,
+          "tool": "grep_code",
+          "args": {
+            "pattern": "FSTRING",
+            "path_glob": "pyupgrade/**"
+          },
+          "ok": true
+        },
+        {
+          "n": 10,
+          "tool": "read_file",
+          "args": {
+            "path": "tests/features/set_literals_test.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 11,
+          "tool": "apply_patch",
+          "args": {
+            "diff": "*** Update File: pyupgrade/_plugins/set_literals.py\n*** Begin Patch\n@@\n def _fix_set_literal(i: int, tokens: list[Token], *, arg: ast.expr) -> None:\n     # TODO: this could be implemented with a little extra logic\n     if not immediately_paren('set', tokens, i):\n         return\n \n     gen = isinstance(arg, ast.GeneratorExp)\n     set_victims = victims(tokens, i + 1, arg, gen=gen)\n \n     del set_victims.starts[0]\n     end_index = set_victims.ends.pop()\n \n     tokens[end_index] = Token('OP', '}')\n     for index in reversed(set_victims.starts + set_victims.ends):\n         remove_brace(tokens, index)\n-    tokens[i:i + 2] = [Token('OP', '{')]\n+    if (\n+            i >= 2 and\n+            tokens[i - 1].matches(name='OP', src='{') and\n+            tokens[i - 2].name in {'FSTRING_START', 'FSTRING_MIDDLE'}\n+    ):\n+        # a literal `{{` inside of an f-string is an escaped `{` -- add a\n+        # space so the substitution doesn't change the f-string's meaning\n+        tokens[i:i + 2] = [Token('UNIMPORTANT_WS', ' '), Token('OP', '{')]\n+    else:\n+        tokens[i:i + 2] = [Token('OP', '{')]\n \n \n @register(ast.Call)\n*** End Patch"
+          },
+          "ok": false
+        },
+        {
+          "n": 12,
+          "tool": "write_file",
+          "args": {
+            "path": "pyupgrade/_plugins/set_literals.py",
+            "content": "from __future__ import annotations\n\nimport ast\nimport functools\nfrom collections.abc import Iterable\n\nfrom tokenize_rt import Offset\nfrom tokenize_rt import Token\n\nfrom pyupgrade._ast_helpers import ast_to_offset\nfrom pyupgrade._data import register\nfrom pyupgrade._data import State\nfrom pyupgrade._data import TokenFunc\nfrom pyupgrade._token_helpers import find_closing_bracket\nfrom pyupgrade._token_helpers import find_op\nfrom pyupgrade._token_helpers import immediately_paren\nfrom pyupgrade._token_helpers import remove_brace\nfrom pyupgrade._token_helpers import victims\n\nSET_TRANSFORM = (ast.List, ast.ListComp, ast.GeneratorExp, ast.Tuple)\n\n\ndef _fix_set_empty_literal(i: int, tokens: list[Token]) -> None:\n    i = find_op(tokens, i, '(')\n    j = find_closing_bracket(tokens, i)\n    del tokens[i + 1:j]\n\n\ndef _fix_set_literal(i: int, tokens: list[Token], *, arg: ast.expr) -> None:\n    # TODO: this could be implemented with a little extra logic\n    if not immediately_paren('set', tokens, i):\n        return\n\n    gen = isinstance(arg, ast.GeneratorExp)\n    set_victims = victims(tokens, i + 1, arg, gen=gen)\n\n    del set_victims.starts[0]\n    end_index = set_victims.ends.pop()\n\n    tokens[end_index] = Token('OP', '}')\n    for index in reversed(set_victims.starts + set_victims.ends):\n        remove_brace(tokens, index)\n    if (\n            i >= 2 and\n            tokens[i - 1].matches(name='OP', src='{') and\n            tokens[i - 2].name in {'FSTRING_START', 'FSTRING_MIDDLE'}\n    ):\n        # a `{` immediately following the start of an f-string expression\n        # would be interpreted as a literal `{{` -- add a space so the\n        # substitution doesn't change the f-string's meaning\n        tokens[i:i + 2] = [Token('UNIMPORTANT_WS', ' '), Token('OP', '{')]\n    else:\n        tokens[i:i + 2] = [Token('OP', '{')]\n\n\n@register(ast.Call)\ndef visit_Call(\n        state: State,\n        node: ast.Call,\n        parent: ast.AST,\n) -> Iterable[tuple[Offset, TokenFunc]]:\n    if (\n            isinstance(node.func, ast.Name) and\n            node.func.id == 'set' and\n            len(node.args) == 1 and\n            not node.keywords and\n            isinstance(node.args[0], SET_TRANSFORM)\n    ):\n        arg, = node.args\n        if isinstance(arg, (ast.List, ast.Tuple)) and not arg.elts:\n            yield ast_to_offset(node.func), _fix_set_empty_literal\n        else:\n            func = functools.partial(_fix_set_literal, arg=arg)\n            yield ast_to_offset(node.func), func\n"
+          },
+          "ok": true
+        },
+        {
+          "n": 13,
+          "tool": "apply_patch",
+          "args": {
+            "diff": "*** Update File: tests/features/set_literals_test.py\n*** Begin Patch\n@@\n         pytest.param(\n             'set((f\"{x})\",))',\n             '{f\"{x})\"}',\n             id='3.12 fstring containing close brace',\n         ),\n+        pytest.param(\n+            'f\"{set([1 + 1])}\"',\n+            'f\"{ {1 + 1}}\"',\n+            id='set literal at start of f-string expression',\n+        ),\n     ),\n )\n def test_sets(s, expected):\n*** End Patch"
+          },
+          "ok": false
+        },
+        {
+          "n": 14,
+          "tool": "read_file",
+          "args": {
+            "path": "tests/features/set_literals_test.py"
+          },
+          "ok": true
+        },
+        {
+          "n": 15,
+          "tool": "write_file",
+          "args": {
+            "path": "tests/features/set_literals_test.py",
+            "content": "from __future__ import annotations\n\nimport pytest\n\nfrom pyupgrade._data import Settings\nfrom pyupgrade._main import _fix_plugins\n\n\n@pytest.mark.parametrize(\n    's',\n    (\n        # Don't touch empty set literals\n        'set()',\n        # Don't touch weird looking function calls -- use autopep8 or such\n        # first\n        'set ((1, 2))',\n    ),\n)\ndef test_fix_sets_noop(s):\n    assert _fix_plugins(s, settings=Settings()) == s\n\n\n@pytest.mark.parametrize(\n    ('s', 'expected'),\n    (\n        # Take a set literal with an empty tuple / list and remove the arg\n        ('set(())', 'set()'),\n        ('set([])', 'set()'),\n        pytest.param('set (())', 'set ()', id='empty, weird ws'),\n        # Remove spaces in empty set literals\n        ('set(( ))', 'set()'),\n        # Some \"normal\" test cases\n        ('set((1, 2))', '{1, 2}'),\n        ('set([1, 2])', '{1, 2}'),\n        ('set(x for x in y)', '{x for x in y}'),\n        ('set([x for x in y])', '{x for x in y}'),\n        # These are strange cases -- the ast doesn't tell us about the parens\n        # here so we have to parse ourselves\n        ('set((x for x in y))', '{x for x in y}'),\n        ('set(((1, 2)))', '{1, 2}'),\n        # The ast also doesn't tell us about the start of the tuple in this\n        # generator expression\n        ('set((a, b) for a, b in y)', '{(a, b) for a, b in y}'),\n        # The ast also doesn't tell us about the start of the tuple for\n        # tuple of tuples\n        ('set(((1, 2), (3, 4)))', '{(1, 2), (3, 4)}'),\n        # Lists where the first element is a tuple also gives the ast trouble\n        # The first element lies about the offset of the element\n        ('set([(1, 2), (3, 4)])', '{(1, 2), (3, 4)}'),\n        (\n            'set(\\n'\n            '    [(1, 2)]\\n'\n            ')',\n            '{\\n'\n            '    (1, 2)\\n'\n            '}',\n        ),\n        ('set([((1, 2)), (3, 4)])', '{((1, 2)), (3, 4)}'),\n        # And it gets worse\n        ('set((((1, 2),),))', '{((1, 2),)}'),\n        # Some multiline cases\n        ('set(\\n(1, 2))', '{\\n1, 2}'),\n        ('set((\\n1,\\n2,\\n))\\n', '{\\n1,\\n2,\\n}\\n'),\n        # Nested sets\n        (\n            'set((frozenset(set((1, 2))), frozenset(set((3, 4)))))',\n            '{frozenset({1, 2}), frozenset({3, 4})}',\n        ),\n        # Remove trailing commas on inline things\n        ('set((1,))', '{1}'),\n        ('set((1, ))', '{1}'),\n        # Remove trailing commas after things\n        ('set([1, 2, 3,],)', '{1, 2, 3}'),\n        ('set((x for x in y),)', '{x for x in y}'),\n        (\n            'set(\\n'\n            '    (x for x in y),\\n'\n            ')',\n            '{\\n'\n            '    x for x in y\\n'\n            '}',\n        ),\n        (\n            'set(\\n'\n            '    [\\n'\n            '        99, 100,\\n'\n            '    ],\\n'\n            ')\\n',\n            '{\\n'\n            '        99, 100,\\n'\n            '}\\n',\n        ),\n        pytest.param('set((\\n))', 'set()', id='empty literal with newline'),\n        pytest.param(\n            'set((f\"{x}(\",))',\n            '{f\"{x}(\"}',\n            id='3.12 fstring containing open brace',\n        ),\n        pytest.param(\n            'set((f\"{x})\",))',\n            '{f\"{x})\"}',\n            id='3.12 fstring containing close brace',\n        ),\n        pytest.param(\n            'f\"{set([1 + 1])}\"',\n            'f\"{ {1 + 1}}\"',\n            id='set literal at start of f-string expression',\n        ),\n    ),\n)\ndef test_sets(s, expected):\n    ret = _fix_plugins(s, settings=Settings())\n    assert ret == expected\n"
+          },
+          "ok": true
+        }
+      ],
+      "resolved": true,
+      "fail_to_pass": {
+        "test_files": [
+          "tests/features/set_literals_test.py"
+        ],
+        "src_files": [
+          "pyupgrade/_plugins/set_literals.py"
+        ],
+        "result": "REAL",
+        "with_fix_passed": 990,
+        "with_fix_failed": 0,
+        "without_fix_failed": 1,
+        "failing_without_fix": [
+          "tests/features/set_literals_test.py::test_sets[set literal at start of f-string expression]"
+        ]
+      },
+      "judge": {
+        "score": 2,
+        "same_root_cause": true,
+        "weakens_tests": false,
+        "narrower_than_reference": true,
+        "reasoning": "Both fixes target the same root cause: rewriting set(...) into {...} literal when it starts an f-string expression, causing ambiguity with {{ escaping. The reference disables the rewrite entirely when parent is ast.FormattedValue (a no-op), for both set and dict literals, in _plugins/set_literals.py and dict_literals.py. The candidate instead inserts a space before the opening brace only for set literals, achieving the same semantic fix described in the issue (as suggested in the issue itself), but does not address dict_literals.py, leaving the same bug present for dict comprehensions/dicts in f-strings. This makes it narrower than the reference. The candidate's approach also differs in implementation detail (space-insertion vs no-op) though the issue explicitly suggests the space-insertion approach as a valid fix. No test weakening occurs; new tests added support the fix.",
+        "judged": true
+      },
+      "truth_src_files": [
+        "pyupgrade/_plugins/dict_literals.py",
+        "pyupgrade/_plugins/set_literals.py"
+      ],
+      "truth_churn": 14
+    }
+  ]
+}

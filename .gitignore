@@ -19,6 +19,7 @@ venv/
 # Local scratch
 .pytest_cache/
 scratch/
+*.log
 
 # OneDrive / Windows noise
 Thumbs.db
