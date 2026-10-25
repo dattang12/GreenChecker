@@ -39,25 +39,75 @@ That example is real output. #804 had been open since 2023.
 
 ## Architecture
 
-```
-   POST /run ──► FastAPI ──┐                    ┌──► Langfuse (traces)
-   (auth + rate limit)     │                    │
-                           ▼                    │
-   scripts/eval.py ──► agent loop ──────────────┤
-   (golden set)            │                    │
-                           │  6 tools           └──► SQLite ──► Streamlit
-                           ▼                              (cost / latency)
-                    ┌──────────────┐
-                    │  container   │  pristine clone, no network,
-                    │  per run     │  2GB / 2CPU, timeouts enforced inside
-                    └──────────────┘
-                    read_file  write_file  apply_patch
-                    run_tests  grep_code   git_diff
+```mermaid
+flowchart LR
+    subgraph entry ["Ways in"]
+        U["curl<br/>POST /run"]
+        E["scripts/eval.py<br/>16-task golden set"]
+        CI["GitHub Actions<br/>eval gate on PRs"]
+    end
+
+    subgraph compose ["docker compose up"]
+        API["FastAPI :8000<br/>API key · 5 runs/hr<br/>one run at a time"]
+        LF["Langfuse :3000<br/>traces"]
+        MY[("MySQL<br/>run log")]
+        DASH["Streamlit :8501<br/>dashboard"]
+    end
+
+    AG{{"Agent loop<br/>src/agent.py"}}
+    GH["GitHub API<br/>issue + comments"]
+    CL["Claude API<br/>Sonnet 5: fix + judge<br/>Haiku 4.5: triage"]
+    SB["Sandbox container<br/>fresh clone per run<br/>no network · 2 GB · 2 CPU"]
+
+    U --> API --> AG
+    CI --> E --> AG
+    AG -->|fetch| GH
+    AG <-->|messages| CL
+    AG -->|"6 tools via docker exec"| SB
+    AG -->|"every turn + tool call"| LF
+    AG -->|"one row per run"| MY --> DASH
 ```
 
-The agent loop is written directly against the Anthropic SDK — no orchestration
-framework — so every budget check and stopping condition is visible in one file
-([src/agent.py](src/agent.py)).
+There are three ways to start a run. All three call the same function,
+`run_issue()`, so a fix made through the API is produced and checked the same
+way as one in the eval or in CI.
+
+| Component | Role |
+|---|---|
+| **API** ([src/api.py](src/api.py)) | Takes an issue URL and returns a structured result. Requires an API key, allows 5 runs per hour and one run at a time, because each request starts a container and spends money. |
+| **Agent loop** ([src/agent.py](src/agent.py)) | Written directly against the Anthropic SDK, with no orchestration framework, so every budget check and stopping condition is in one file. The model chooses what to try; the harness enforces the limits and decides the outcome. |
+| **Sandbox** ([src/sandbox.py](src/sandbox.py)) | A fresh container per issue, checked out at the issue's base commit, with networking off. Six tools run inside it: `read_file`, `grep_code`, `write_file`, `apply_patch`, `run_tests`, `git_diff`. The container is deleted when the run ends. |
+| **Claude** ([src/llm.py](src/llm.py)) | Sonnet 5 writes the fix and judges diffs. Haiku 4.5 runs the optional pre-check (triage) that turns down issues it can't fix. |
+| **Langfuse** ([src/tracing.py](src/tracing.py)) | Records every model turn and tool call, so a failed run can be replayed step by step. Optional: with tracing off, the agent behaves identically. |
+| **MySQL** ([src/store.py](src/store.py)) | One row per run: status, cost, duration, tool calls, judge score, trace link. Falls back to SQLite when `DATABASE_URL` is unset, so CI and a fresh checkout need no database. |
+| **Dashboard** ([scripts/dashboard.py](scripts/dashboard.py)) | Reads the run log and shows resolve rate, cost per fix, latency, and where spend went. |
+
+The API container doesn't run sandboxes itself. It drives the host's Docker
+through the mounted socket and starts one container per issue. That is why the
+API requires a key and shouldn't be reachable from an untrusted network.
+
+### One run
+
+```mermaid
+sequenceDiagram
+    participant H as Harness (agent.py)
+    participant C as Claude
+    participant S as Sandbox
+
+    H->>H: fetch issue, optional Haiku triage
+    H->>S: start container at base commit
+    loop until the model stops or a budget is hit
+        H->>C: issue + tool results so far
+        C-->>H: next tool call
+        H->>S: run the tool
+        S-->>H: output
+    end
+    C-->>H: "VERDICT: FIXED" (a claim)
+    H->>S: run the full test suite
+    S-->>H: e.g. 1102 passed, 0 failed
+    H->>H: status from what was observed
+    H->>S: delete container
+```
 
 **Enforced by the harness, not requested of the model:** 15 tool calls per issue,
 a 5-minute wall clock, and 3 failed test runs before it stops. The model ends
@@ -159,48 +209,62 @@ wrong decline forfeits a fix permanently, a wrong attempt wastes twenty cents.
 
 ## Setup
 
+Requires Docker and an Anthropic API key.
+
 ```bash
-git clone <this repo> && cd repo-triage-agent
+git clone https://github.com/dattang12/GreenChecker.git && cd GreenChecker
+cp .env.example .env
+# In .env, set:
+#   ANTHROPIC_API_KEY   (+ ANTHROPIC_WORKSPACE_ID if the key is identity-linked)
+#   TRIAGE_API_KEY      python -c "import secrets; print(secrets.token_urlsafe(24))"
+
+docker compose up -d --build
+```
+
+That one command builds the sandbox image and starts everything:
+
+| Service | Address |
+|---|---|
+| API | http://localhost:8000 (interactive docs at `/docs`) |
+| Dashboard | http://localhost:8501 |
+| Langfuse | http://localhost:3000 (`dev@example.com` / `langfuse-dev-password`) |
+| MySQL | `localhost:3306` (`triage` / `triage`, database `triage`) |
+
+Run an issue:
+
+```bash
+curl -X POST localhost:8000/run \
+  -H "X-API-Key: $TRIAGE_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{"issue_url":"https://github.com/asottile/pyupgrade/issues/804"}'
+```
+
+The API refuses every request until `TRIAGE_API_KEY` is set, and allows 5 runs
+per hour by default. Each call starts a container and spends real money.
+
+**From the command line** (no API needed):
+
+```bash
 pip install -r requirements.txt
-cp .env.example .env          # add ANTHROPIC_API_KEY (+ workspace id if identity-linked)
 
-# 1. Build the sandbox (bakes in a pristine pyupgrade clone)
-docker build -t repo-triage-sandbox:latest \
-  --build-arg REPO_URL=https://github.com/asottile/pyupgrade \
-  --build-arg REPO_REF=main .
-
-# 2. Verify every tool works before spending anything
-python scripts/smoke_test.py
-
-# 3. Run one issue
+python scripts/smoke_test.py           # checks every tool, spends nothing
 python src/agent.py https://github.com/asottile/pyupgrade/issues/804
 
-# 4. Score against the golden set
 python scripts/eval.py --estimate      # cost estimate, spends nothing
-python scripts/eval.py                 # ~$2.70, ~27 min
+python scripts/eval.py                 # full golden set, ~$2.70, ~27 min
+python scripts/backfill_runs.py        # load saved results into the run log
 ```
 
-**Optional — tracing and dashboard:**
+With the compose stack running, these scripts log to the same MySQL database and
+Langfuse instance, so their runs show up on the dashboard. Without it, unset
+`DATABASE_URL` and set `LANGFUSE_ENABLED=0`: runs then go to SQLite at
+`data/runs.sqlite`, and the agent behaves the same. Tracing is optional on
+purpose, because a CI build going red over an unreachable observability stack
+would be worse than having no traces.
 
 ```bash
-docker compose -f docker-compose.langfuse.yml up -d   # http://localhost:3000
-python scripts/trace_selftest.py                      # confirm traces land
-streamlit run scripts/dashboard.py                    # http://localhost:8501
+docker compose down        # stop everything; data is kept in Docker volumes
 ```
-
-Tracing is optional by construction: unset the keys or set `LANGFUSE_ENABLED=0`
-and the agent runs identically. CI going red because the observability stack is
-unreachable would be worse than no observability.
-
-**Optional — the service:**
-
-```bash
-TRIAGE_API_KEY=... uvicorn api:app --app-dir src --port 8000
-```
-
-Authenticated and rate-limited (5 runs/hour by default). Without
-`TRIAGE_API_KEY` set it refuses every request rather than accepting anonymous
-work — each call runs a container and spends real money.
 
 ---
 
