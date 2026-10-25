@@ -1,0 +1,90 @@
+# The whole stack, one command:
+#
+#   docker compose up -d --build
+#
+#   API        http://localhost:8000      (POST /run, needs X-API-Key)
+#   Dashboard  http://localhost:8501
+#   Langfuse   http://localhost:3000      (dev@example.com / langfuse-dev-password)
+#   MySQL      localhost:3306             (triage / triage, db: triage)
+#
+# Secrets come from .env (ANTHROPIC_API_KEY, TRIAGE_API_KEY, ...). Values set
+# under `environment:` below override .env, which is how the containers get
+# in-network hostnames instead of localhost.
+#
+# The API mounts the host Docker socket so it can start one sandbox container
+# per run. That gives it control of the host daemon -- keep this stack off any
+# network you do not control.
+
+include:
+  - docker-compose.langfuse.yml
+
+services:
+  # Build-only: produces repo-triage-sandbox:latest on the host daemon, which
+  # the API then runs per issue. Exits immediately.
+  sandbox-image:
+    image: repo-triage-sandbox:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        REPO_URL: https://github.com/asottile/pyupgrade
+        REPO_REF: main
+    command: ["true"]
+    restart: "no"
+
+  mysql:
+    image: mysql:8.4
+    restart: always
+    environment:
+      MYSQL_DATABASE: triage
+      MYSQL_USER: triage
+      MYSQL_PASSWORD: triage
+      MYSQL_ROOT_PASSWORD: triage-root
+    ports:
+      - "3306:3306"
+    volumes:
+      - triage_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -utriage -ptriage --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      sandbox-image:
+        condition: service_completed_successfully
+      mysql:
+        condition: service_healthy
+      langfuse-web:
+        condition: service_started
+    env_file: .env
+    environment:
+      DATABASE_URL: mysql://triage:triage@mysql:3306/triage
+      LANGFUSE_HOST: http://langfuse-web:3000
+      LANGFUSE_PUBLIC_HOST: http://localhost:3000
+    ports:
+      - "8000:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql://triage:triage@mysql:3306/triage
+    ports:
+      - "8501:8501"
+
+volumes:
+  triage_mysql_data:

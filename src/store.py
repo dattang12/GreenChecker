@@ -1,21 +1,37 @@
-"""SQLite run log. Every agent run, from eval or the API, lands here.
+"""Run log. Every agent run, from eval or the API, lands here.
 
 One table, written once per run. This is the dashboard's data source and the
 only place run history survives process exit.
+
+Backend is chosen by DATABASE_URL:
+
+    mysql://user:password@host:3306/dbname   -> MySQL (docker compose sets this)
+    unset                                    -> SQLite at data/runs.sqlite
+
+SQLite stays the fallback so a bare checkout, CI, and the eval scripts work
+with no database server running.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DB_PATH = ROOT / "data" / "runs.sqlite"
 
-_SCHEMA = """
+_COLUMNS = (
+    "created_utc", "source", "tag", "issue_id", "status", "resolved", "stop_reason",
+    "model", "tool_call_count", "duration_seconds", "tokens_used", "cost_usd",
+    "judge_score", "files_changed", "trace_url",
+)
+
+_SQLITE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     created_utc       TEXT    NOT NULL,
@@ -38,14 +54,92 @@ CREATE INDEX IF NOT EXISTS idx_runs_created ON runs (created_utc);
 CREATE INDEX IF NOT EXISTS idx_runs_issue   ON runs (issue_id);
 """
 
+# created_utc stays an ISO-8601 string on both backends so ordering and the
+# backfill's exact-match dedupe behave identically.
+_MYSQL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS runs (
+    id                INT AUTO_INCREMENT PRIMARY KEY,
+    created_utc       VARCHAR(40)  NOT NULL,
+    source            VARCHAR(16)  NOT NULL,
+    tag               VARCHAR(128),
+    issue_id          VARCHAR(255) NOT NULL,
+    status            VARCHAR(16)  NOT NULL,
+    resolved          TINYINT,
+    stop_reason       VARCHAR(64),
+    model             VARCHAR(64),
+    tool_call_count   INT,
+    duration_seconds  DOUBLE,
+    tokens_used       INT,
+    cost_usd          DOUBLE,
+    judge_score       INT,
+    files_changed     TEXT,
+    trace_url         TEXT,
+    INDEX idx_runs_created (created_utc),
+    INDEX idx_runs_issue   (issue_id)
+) CHARACTER SET utf8mb4
+"""
 
-def connect(path: pathlib.Path | str = DB_PATH) -> sqlite3.Connection:
+
+def backend() -> str:
+    return "mysql" if os.environ.get("DATABASE_URL", "").startswith("mysql") else "sqlite"
+
+
+def describe() -> str:
+    """Where runs are going, without the password. For log lines and the UI."""
+    if backend() == "sqlite":
+        return f"sqlite:{DB_PATH}"
+    u = urlparse(os.environ["DATABASE_URL"])
+    return f"mysql://{u.hostname}:{u.port or 3306}{u.path}"
+
+
+class _Conn:
+    """Thin wrapper so callers write `?` placeholders on either backend."""
+
+    def __init__(self, raw: Any, kind: str):
+        self.raw = raw
+        self.kind = kind
+
+    def execute(self, sql: str, params: tuple = ()) -> Any:
+        if self.kind == "mysql":
+            sql = sql.replace("?", "%s")
+            cur = self.raw.cursor()
+            cur.execute(sql, params)
+            return cur
+        return self.raw.execute(sql, params)
+
+    def commit(self) -> None:
+        self.raw.commit()
+
+    def close(self) -> None:
+        self.raw.close()
+
+
+def connect(path: pathlib.Path | str = DB_PATH) -> _Conn:
+    if backend() == "mysql":
+        import pymysql
+
+        u = urlparse(os.environ["DATABASE_URL"])
+        raw = pymysql.connect(
+            host=u.hostname or "localhost",
+            port=u.port or 3306,
+            user=unquote(u.username or ""),
+            password=unquote(u.password or ""),
+            database=u.path.lstrip("/"),
+            charset="utf8mb4",
+            cursorclass=pymysql.cursors.DictCursor,
+            connect_timeout=10,
+        )
+        conn = _Conn(raw, "mysql")
+        conn.execute(_MYSQL_SCHEMA)
+        conn.commit()
+        return conn
+
     path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
-    conn.row_factory = sqlite3.Row
-    conn.executescript(_SCHEMA)
-    return conn
+    raw = sqlite3.connect(str(path))
+    raw.row_factory = sqlite3.Row
+    raw.executescript(_SQLITE_SCHEMA)
+    return _Conn(raw, "sqlite")
 
 
 def log_run(
@@ -66,13 +160,8 @@ def log_run(
     conn = connect(path)
     try:
         cur = conn.execute(
-            """
-            INSERT INTO runs (
-                created_utc, source, tag, issue_id, status, resolved, stop_reason,
-                model, tool_call_count, duration_seconds, tokens_used, cost_usd,
-                judge_score, files_changed, trace_url
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
+            f"INSERT INTO runs ({', '.join(_COLUMNS)}) "
+            f"VALUES ({', '.join('?' for _ in _COLUMNS)})",
             (
                 created_utc or datetime.now(timezone.utc).isoformat(),
                 source,
@@ -97,12 +186,27 @@ def log_run(
         conn.close()
 
 
-def recent(limit: int = 100, path: pathlib.Path | str = DB_PATH) -> list[dict[str, Any]]:
+def exists(issue_id: str, created_utc: str, path: pathlib.Path | str = DB_PATH) -> bool:
     conn = connect(path)
     try:
-        rows = conn.execute(
-            "SELECT * FROM runs ORDER BY created_utc DESC LIMIT ?", (limit,)
-        ).fetchall()
-        return [dict(r) for r in rows]
+        row = conn.execute(
+            "SELECT 1 FROM runs WHERE issue_id = ? AND created_utc = ? LIMIT 1",
+            (issue_id, created_utc),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def recent(limit: int | None = 100, path: pathlib.Path | str = DB_PATH) -> list[dict[str, Any]]:
+    """Newest first. limit=None returns every run."""
+    conn = connect(path)
+    try:
+        sql = "SELECT * FROM runs ORDER BY created_utc DESC"
+        params: tuple = ()
+        if limit is not None:
+            sql += " LIMIT ?"
+            params = (limit,)
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
     finally:
         conn.close()

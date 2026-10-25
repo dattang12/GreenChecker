@@ -2,14 +2,14 @@
 
     streamlit run scripts/dashboard.py
 
-Reads data/runs.sqlite, which both eval.py and the API write to.
+Reads the run log (MySQL via DATABASE_URL, else data/runs.sqlite), which both
+eval.py and the API write to.
 """
 
 from __future__ import annotations
 
 import json
 import pathlib
-import sqlite3
 import sys
 
 import pandas as pd
@@ -18,20 +18,16 @@ import streamlit as st
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from store import DB_PATH  # noqa: E402
+from llm import load_env  # noqa: E402
+from store import describe, recent  # noqa: E402
 
+load_env()
 st.set_page_config(page_title="repo-triage-agent", layout="wide")
 
 
 @st.cache_data(ttl=10)
 def load() -> pd.DataFrame:
-    if not pathlib.Path(DB_PATH).exists():
-        return pd.DataFrame()
-    conn = sqlite3.connect(str(DB_PATH))
-    try:
-        df = pd.read_sql_query("SELECT * FROM runs ORDER BY created_utc DESC", conn)
-    finally:
-        conn.close()
+    df = pd.DataFrame(recent(limit=None))
     if df.empty:
         return df
     df["created_utc"] = pd.to_datetime(df["created_utc"], format="mixed", utc=True)
@@ -49,7 +45,7 @@ st.caption(
 )
 
 if df.empty:
-    st.warning(f"No runs logged yet. Expected a database at {DB_PATH}.")
+    st.warning(f"No runs logged yet in {describe()}.")
     st.stop()
 
 # -- filters ----------------------------------------------------------------

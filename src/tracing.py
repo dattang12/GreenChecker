@@ -91,9 +91,16 @@ class Tracer:
         if self._client is None:
             return None
         try:
-            return self._client.get_trace_url()
+            url = self._client.get_trace_url()
         except Exception:  # noqa: BLE001
             return None
+        # Inside compose the SDK talks to langfuse-web:3000, which a browser
+        # cannot open; LANGFUSE_PUBLIC_HOST is the address humans click.
+        public = os.environ.get("LANGFUSE_PUBLIC_HOST")
+        internal = os.environ.get("LANGFUSE_HOST")
+        if url and public and internal:
+            url = url.replace(internal.rstrip("/"), public.rstrip("/"), 1)
+        return url
 
     def flush(self) -> None:
         if self._client is None:

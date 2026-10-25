@@ -1,6 +1,6 @@
 """Import historical eval results into the run log.
 
-The SQLite store was added in Phase 7, after several eval runs had already
+The run log was added in Phase 7, after several eval runs had already
 happened. Their JSON is the source of truth, so import it rather than re-run
 the agent at ~$0.20 a task.
 
@@ -16,22 +16,16 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from store import connect, log_run  # noqa: E402
+from llm import load_env  # noqa: E402
+from store import describe, exists, log_run  # noqa: E402
 
 EVAL_DIR = ROOT / "results" / "eval"
 PHASE2_DIR = ROOT / "results" / "phase2"
 
 
-def already_present(conn, issue_id: str, created: str) -> bool:
-    row = conn.execute(
-        "SELECT 1 FROM runs WHERE issue_id = ? AND created_utc = ? LIMIT 1",
-        (issue_id, created),
-    ).fetchone()
-    return row is not None
-
-
 def main() -> int:
-    conn = connect()
+    load_env()
+    print(f"run log: {describe()}")
     imported = skipped = 0
 
     # Prefer .rescored.json over the raw run: same runs, better grading.
@@ -47,7 +41,7 @@ def main() -> int:
         model = meta.get("model", "")
 
         for row in blob.get("results", []):
-            if already_present(conn, row.get("issue_id", "?"), created):
+            if exists(row.get("issue_id", "?"), created):
                 skipped += 1
                 continue
             log_run(row, source="eval", tag=tag, model=model, created_utc=created)
@@ -57,13 +51,12 @@ def main() -> int:
     for path in sorted(PHASE2_DIR.glob("*.json")):
         row = json.loads(path.read_text(encoding="utf-8"))
         created = "2026-08-28T00:00:00+00:00"
-        if already_present(conn, row.get("issue_id", "?"), created):
+        if exists(row.get("issue_id", "?"), created):
             skipped += 1
             continue
         log_run(row, source="phase2", tag="phase2", model="claude-sonnet-5", created_utc=created)
         imported += 1
 
-    conn.close()
     print(f"\nimported {imported}, skipped {skipped} already present")
     return 0
 

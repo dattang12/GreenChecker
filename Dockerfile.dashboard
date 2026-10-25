@@ -1,0 +1,21 @@
+# The Streamlit cost/latency dashboard. Reads the run log only -- no Docker,
+# no API key.
+#
+#   docker compose up dashboard      (http://localhost:8501)
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir "streamlit>=1.40.0" "pandas>=2.2.0" \
+    "pymysql>=1.1.0" "python-dotenv>=1.0.0" "anthropic>=1.2.0"
+
+COPY src/ ./src/
+COPY scripts/dashboard.py ./scripts/dashboard.py
+
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8501
+
+CMD ["streamlit", "run", "scripts/dashboard.py", \
+     "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]

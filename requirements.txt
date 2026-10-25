@@ -9,6 +9,9 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 pydantic>=2.9.0
 
+# Run log. MySQL when DATABASE_URL is set, SQLite otherwise.
+pymysql>=1.1.0
+
 # Dashboard (Phase 7)
 streamlit>=1.40.0
 pandas>=2.2.0
