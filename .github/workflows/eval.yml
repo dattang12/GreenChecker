@@ -19,10 +19,14 @@ on:
       min_pass_rate:
         description: "Fail the build below this resolved rate (0-1)"
         default: "0.30"
+      min_judge_score:
+        description: "Fail the build below this mean judge score on resolved fixes (0-3)"
+        default: "2.0"
 
 env:
   TASK_LIMIT: ${{ github.event.inputs.task_limit || '6' }}
   MIN_PASS_RATE: ${{ github.event.inputs.min_pass_rate || '0.30' }}
+  MIN_JUDGE_SCORE: ${{ github.event.inputs.min_judge_score || '2.0' }}
 
 jobs:
   eval:
@@ -62,7 +66,8 @@ jobs:
             --limit "$TASK_LIMIT" \
             --quiet \
             --tag "ci-${GITHUB_SHA::7}" \
-            --min-pass-rate "$MIN_PASS_RATE"
+            --min-pass-rate "$MIN_PASS_RATE" \
+            --min-judge-score "$MIN_JUDGE_SCORE"
 
       - name: Upload eval results
         if: always()

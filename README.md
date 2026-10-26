@@ -270,7 +270,7 @@ docker compose down        # stop everything; data is kept in Docker volumes
 
 ## Links
 
-- CI regression gate: [.github/workflows/eval.yml](.github/workflows/eval.yml) — runs a golden-set subset on PRs and fails below a pass-rate threshold
+- CI regression gate: [.github/workflows/eval.yml](.github/workflows/eval.yml) — runs a golden-set subset on every PR and blocks the merge if the resolve rate falls below its threshold, the judge's mean score on resolved fixes drops below 2.0, or any resolved fix weakens an existing test. The checks are independent, never averaged.
 - Eval results, versioned for diffing across runs: [results/eval/](results/eval/)
 - Golden set and how it was verified: [data/goldenset.verified.json](data/goldenset.verified.json), [scripts/verify_goldenset.py](scripts/verify_goldenset.py)
 - Agent system prompt: [src/prompts.py](src/prompts.py)

@@ -175,6 +175,12 @@ def main() -> int:
         type=float,
         help="exit non-zero if the resolved rate falls below this (0-1). Used by CI.",
     )
+    ap.add_argument(
+        "--min-judge-score",
+        type=float,
+        help="exit non-zero if the mean judge score of resolved fixes falls below "
+             "this (0-3), or if any resolved fix weakens a test. Used by CI.",
+    )
     args = ap.parse_args()
 
     tasks = load_tasks(args.limit, args.only)
@@ -241,13 +247,49 @@ def main() -> int:
     path.write_text(json.dumps({"meta": meta, "results": rows}, indent=2), encoding="utf-8")
     print(f"\nwrote {path}")
 
-    if args.min_pass_rate is not None:
-        rate = sum(1 for r in rows if r["resolved"]) / n if n else 0.0
-        print(f"\ngate: {rate:.0%} resolved vs threshold {args.min_pass_rate:.0%}")
-        if rate < args.min_pass_rate:
-            print("GATE FAILED")
-            return 1
-        print("GATE PASSED")
+    return gate(rows, args.min_pass_rate, args.min_judge_score)
+
+
+def gate(rows: list[dict], min_pass_rate: float | None, min_judge_score: float | None) -> int:
+    """CI regression gate. Each check stands alone -- the execution result and
+    the judge's opinion are never blended into one number."""
+    if min_pass_rate is None and min_judge_score is None:
+        return 0
+
+    n = len(rows)
+    resolved = [r for r in rows if r["resolved"]]
+    failures = []
+    print()
+
+    if min_pass_rate is not None:
+        rate = len(resolved) / n if n else 0.0
+        ok = rate >= min_pass_rate
+        print(f"gate: resolved {len(resolved)}/{n} = {rate:.0%}"
+              f"  (min {min_pass_rate:.0%})  {'ok' if ok else 'FAIL'}")
+        if not ok:
+            failures.append("resolve rate")
+
+    if min_judge_score is not None:
+        # Judge only the fixes that count: a resolved fix that merely hides the
+        # symptom is the regression execution checks cannot see.
+        scores = [r["judge"].get("score", 0) for r in resolved]
+        mean = statistics.mean(scores) if scores else 0.0
+        ok = mean >= min_judge_score
+        print(f"gate: judge mean on resolved fixes = {mean:.2f}"
+              f"  (min {min_judge_score:.2f})  {'ok' if ok else 'FAIL'}")
+        if not ok:
+            failures.append("judge score")
+
+        weakened = [r["issue_id"] for r in resolved if r["judge"].get("weakens_tests")]
+        print(f"gate: resolved fixes that weaken a test = {len(weakened)}"
+              f"  (max 0)  {'ok' if not weakened else 'FAIL ' + ', '.join(weakened)}")
+        if weakened:
+            failures.append("weakened tests")
+
+    if failures:
+        print(f"GATE FAILED: {', '.join(failures)}")
+        return 1
+    print("GATE PASSED")
     return 0
 
 
