@@ -2,7 +2,7 @@
 
 *An autonomous GitHub issue-fixing agent that only ships a patch when the tests go green.*
 
-**Resolves ~90% (14/16) of real closed issues from [pyupgrade](https://github.com/asottile/pyupgrade) at $0.31 per fix and a 73s median**, scored not by its own say-so but by whether the maintainer's actual test suite passes.
+**Resolves 81% (13/16) of real closed issues from [pyupgrade](https://github.com/asottile/pyupgrade) at $0.31 per fix and a 73s median**, scored not by its own say-so but by whether the maintainer's actual test suite passes.
 
 Runs locally — `docker compose up` and a `POST /run` away. No hosted demo; deployment was deliberately deferred (see [Status](#status)).
 
